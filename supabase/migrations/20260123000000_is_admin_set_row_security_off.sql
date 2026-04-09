@@ -1,5 +1,5 @@
--- is_admin() must not re-enter RLS on public.users while evaluating policies on public.users.
--- Uses app_metadata.role short-circuit + function-level SET row_security = off for DB read.
+-- 1) JWT short-circuit: no SELECT on public.users → cannot recurse (app_metadata is server-controlled).
+-- 2) Function-level SET row_security = off for the DB fallback (replaces unreliable set_config in body).
 
 create or replace function public.is_admin()
 returns boolean

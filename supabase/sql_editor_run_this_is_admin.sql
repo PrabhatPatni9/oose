@@ -1,5 +1,5 @@
--- is_admin() must not re-enter RLS on public.users while evaluating policies on public.users.
--- Uses app_metadata.role short-circuit + function-level SET row_security = off for DB read.
+-- Paste into Supabase Dashboard → SQL Editor → Run (fixes "infinite recursion detected in policy for relation users").
+-- Project in this repo: ref xadjqqqxlpbuojjkfnoi — confirm Vercel NEXT_PUBLIC_SUPABASE_URL matches that host.
 
 create or replace function public.is_admin()
 returns boolean

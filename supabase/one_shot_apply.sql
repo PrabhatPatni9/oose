@@ -3,16 +3,20 @@
 -- Idempotent sections use DROP IF EXISTS / tagged seed rows where noted.
 -- =============================================================================
 
--- --- is_admin(): internal SELECT must not re-apply RLS on public.users (policies call is_admin → recursion) ---
+-- --- is_admin(): JWT app_metadata short-circuit + SET row_security = off for DB fallback ---
 create or replace function public.is_admin()
 returns boolean
 language plpgsql
 stable
 security definer
 set search_path = public
+set row_security = off
 as $$
 begin
-  perform set_config('row_security', 'off', true);
+  if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin' then
+    return true;
+  end if;
+
   return exists (
     select 1 from public.users
     where id = auth.uid() and role = 'admin'
