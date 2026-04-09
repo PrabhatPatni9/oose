@@ -1,8 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
+
+const REF_STORAGE = "hsbms_referral_code";
 
 type Role = "User" | "Provider" | "Admin";
 
@@ -16,32 +18,64 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref?.trim()) {
+      sessionStorage.setItem(REF_STORAGE, ref.trim());
+    }
+  }, []);
+
+  async function routeAfterAuth(supabase: ReturnType<typeof getSupabase>) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setError("Account created — confirm your email if required, then sign in.");
+      return;
+    }
+    const { data: row } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle();
+    const dbRole = (row?.role as string | undefined) ?? "user";
+    if (dbRole === "admin") router.push("/admin");
+    else if (dbRole === "provider") router.push("/provider");
+    else router.push("/dashboard");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     const supabase = getSupabase();
+    const referredBy =
+      typeof window !== "undefined" ? sessionStorage.getItem(REF_STORAGE)?.trim() || undefined : undefined;
 
     if (isSignUp) {
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { role: role.toLowerCase(), name: email.split("@")[0] } },
+        options: {
+          data: {
+            role: role.toLowerCase(),
+            name: email.split("@")[0],
+            ...(referredBy ? { referred_by: referredBy } : {}),
+          },
+        },
       });
-      if (signUpError) { setError(signUpError.message); setLoading(false); return; }
-      // After signup, go to appropriate dashboard
+      if (signUpError) {
+        setError(signUpError.message);
+        setLoading(false);
+        return;
+      }
+      await routeAfterAuth(supabase);
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-      if (signInError) { setError(signInError.message); setLoading(false); return; }
+      if (signInError) {
+        setError(signInError.message);
+        setLoading(false);
+        return;
+      }
+      await routeAfterAuth(supabase);
     }
 
-    if (role === "Provider") {
-      router.push("/provider");
-    } else if (role === "Admin") {
-      router.push("/admin");
-    } else {
-      router.push("/dashboard");
-    }
+    setLoading(false);
   }
 
   return (

@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
+import { fetchAdminSnapshot } from "@/lib/adminSnapshotClient";
 
-type Tab = "overview" | "tickets" | "users" | "providers" | "bookings";
+type Tab = "overview" | "tickets" | "users" | "providers" | "bookings" | "referrals";
 
 interface Ticket {
   id: number;
@@ -37,6 +38,13 @@ interface AdminBooking {
   users: { name: string; email: string } | null;
 }
 
+interface AdminReferral {
+  id: number;
+  referrer_id: string;
+  referee_id: string | null;
+  created_at: string;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
@@ -44,7 +52,9 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
+  const [referrals, setReferrals] = useState<AdminReferral[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadNote, setLoadNote] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     const supabase = getSupabase();
@@ -53,14 +63,36 @@ export default function AdminPage() {
       router.push("/login");
       return;
     }
-    const role = auth.user.user_metadata?.role;
-    if (role !== "admin") {
+
+    const { data: me } = await supabase.from("users").select("role").eq("id", auth.user.id).maybeSingle();
+    if (me?.role !== "admin") {
       router.push("/dashboard");
       return;
     }
 
     setLoading(true);
-    const [tRes, uRes, pRes, bRes] = await Promise.all([
+    setLoadNote(null);
+
+    const snap = await fetchAdminSnapshot(supabase);
+    if (snap.ok && Array.isArray(snap.data.tickets) && snap.data.error == null) {
+      setTickets((snap.data.tickets as Ticket[]) ?? []);
+      setUsers((snap.data.users as AppUser[]) ?? []);
+      setProviders((snap.data.providers as ProviderRow[]) ?? []);
+      setBookings((snap.data.bookings as AdminBooking[]) ?? []);
+      setReferrals((snap.data.referrals as AdminReferral[]) ?? []);
+      const errs = snap.data.errors;
+      if (errs && Object.values(errs).some(Boolean)) {
+        setLoadNote(`Edge snapshot partial: ${JSON.stringify(errs)}`);
+      }
+      setLoading(false);
+      return;
+    }
+
+    setLoadNote(
+      snap.ok ? "Snapshot malformed; using direct queries." : `admin-snapshot unavailable (${snap.error}). Using direct queries.`,
+    );
+
+    const [tRes, uRes, pRes, bRes, rRes] = await Promise.all([
       supabase.from("issued_reports").select("id, description, status, created_at").order("created_at", { ascending: false }),
       supabase.from("users").select("id, name, email, role, created_at").order("created_at", { ascending: false }),
       supabase.from("service_providers").select("id, user_id, skills, rating, users(name, email)").order("id", { ascending: true }),
@@ -69,11 +101,13 @@ export default function AdminPage() {
         .select("id, status, scheduled_time, services(name), users(name, email)")
         .order("scheduled_time", { ascending: false })
         .limit(40),
+      supabase.from("referrals").select("id, referrer_id, referee_id, created_at").order("created_at", { ascending: false }).limit(200),
     ]);
     setTickets((tRes.data as Ticket[] | null) ?? []);
     setUsers((uRes.data as AppUser[] | null) ?? []);
     setProviders((pRes.data as ProviderRow[] | null) ?? []);
     setBookings((bRes.data as AdminBooking[] | null) ?? []);
+    setReferrals((rRes.data as AdminReferral[] | null) ?? []);
     setLoading(false);
   }, [router]);
 
@@ -99,6 +133,12 @@ export default function AdminPage() {
     setProviders((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }
 
+  async function signOut() {
+    const supabase = getSupabase();
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
   const openCount = tickets.filter((t) => t.status === "open").length;
   const inProgressCount = tickets.filter((t) => t.status === "in_progress").length;
   const resolvedCount = tickets.filter((t) => t.status === "resolved").length;
@@ -109,7 +149,14 @@ export default function AdminPage() {
     { id: "users", label: "Users" },
     { id: "providers", label: "Providers" },
     { id: "bookings", label: "Bookings" },
+    { id: "referrals", label: "Referrals" },
   ];
+
+  function userLabel(id: string | null) {
+    if (!id) return "—";
+    const u = users.find((x) => x.id === id);
+    return u ? `${u.name || u.email}`.trim() || id.slice(0, 8) : id.slice(0, 8);
+  }
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark">
@@ -119,15 +166,24 @@ export default function AdminPage() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">Admin console</h1>
-                <p className="text-xs text-slate-500">Users, providers, tickets, and bookings</p>
+                <p className="text-xs text-slate-500">Users, providers, tickets, bookings, referrals</p>
               </div>
-              <button
-                type="button"
-                onClick={() => loadAll()}
-                className="text-xs font-semibold text-primary px-3 py-2 rounded-lg bg-primary/10"
-              >
-                Refresh
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => loadAll()}
+                  className="text-xs font-semibold text-primary px-3 py-2 rounded-lg bg-primary/10"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  className="text-xs font-semibold text-slate-700 dark:text-slate-200 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
             <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar pb-1">
               {tabs.map((t) => (
@@ -146,6 +202,9 @@ export default function AdminPage() {
           </header>
 
           <main className="flex-1 px-4 pt-4 space-y-4">
+            {loadNote && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">{loadNote}</p>
+            )}
             {loading && <p className="text-sm text-slate-500">Loading…</p>}
 
             {tab === "overview" && !loading && (
@@ -167,9 +226,13 @@ export default function AdminPage() {
                     <p className="text-xs text-slate-500">Bookings (loaded)</p>
                     <p className="text-2xl font-bold">{bookings.length}</p>
                   </div>
+                  <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+                    <p className="text-xs text-slate-500">Referrals</p>
+                    <p className="text-2xl font-bold">{referrals.length}</p>
+                  </div>
                 </div>
                 <div className="rounded-xl bg-primary/5 border border-primary/15 p-4 text-sm text-slate-600 dark:text-slate-400">
-                  Tip: apply the latest Supabase migration so <code className="text-xs">bookings.extras</code> and admin RLS policies exist in your project.
+                  Data loads via the <code className="text-xs">admin-snapshot</code> Edge Function when deployed; otherwise the app falls back to direct queries with admin RLS.
                 </div>
               </>
             )}
@@ -317,6 +380,30 @@ export default function AdminPage() {
                         {b.status}
                       </span>
                     </div>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {tab === "referrals" && !loading && (
+              <section className="space-y-3">
+                {referrals.length === 0 && (
+                  <p className="text-sm text-slate-500 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
+                    No referral rows yet.
+                  </p>
+                )}
+                {referrals.map((r) => (
+                  <div key={r.id} className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 text-sm">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">Referral #{r.id}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Referrer: <span className="font-mono">{userLabel(r.referrer_id)}</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Referee: <span className="font-mono">{userLabel(r.referee_id)}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-2">
+                      {new Date(r.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
                   </div>
                 ))}
               </section>

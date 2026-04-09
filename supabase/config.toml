@@ -1,0 +1,11 @@
+# Project URL: https://xadjqqqxlpbuojjkfnoi.supabase.co  (ref: xadjqqqxlpbuojjkfnoi)
+# Link CLI: npx supabase login && npx supabase link --project-ref xadjqqqxlpbuojjkfnoi
+# DB without CLI: run supabase/one_shot_apply.sql in Dashboard → SQL Editor
+#
+# Do not add [project] here — current Supabase CLI rejects unknown keys and fails every command.
+
+[functions.predict-reminders]
+verify_jwt = true
+
+[functions.admin-snapshot]
+verify_jwt = true

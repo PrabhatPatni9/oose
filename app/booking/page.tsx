@@ -37,6 +37,7 @@ export default function BookingPage() {
   const [addons, setAddons] = useState<AddonSelection>({ duct: false, windows: false, soap: false });
   const [loading, setLoading] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadServices() {
@@ -63,10 +64,21 @@ export default function BookingPage() {
   }, [basePrice, duration, addons, timeWindow]);
 
   const categories = useMemo(() => ["All", ...uniqueCategories(services)], [services]);
-  const visibleServices = useMemo(
-    () => (selectedCategory === "All" ? services : services.filter((s) => s.category === selectedCategory)),
-    [selectedCategory, services],
-  );
+  const groupedServices = useMemo(() => {
+    const cats = selectedCategory === "All" ? uniqueCategories(services) : [selectedCategory];
+    return cats.map((cat) => ({
+      category: cat,
+      items: services.filter((s) => s.category === cat),
+    }));
+  }, [services, selectedCategory]);
+
+  useEffect(() => {
+    const flat = groupedServices.flatMap((g) => g.items);
+    if (flat.length === 0) return;
+    if (!flat.some((s) => s.id === selectedServiceId)) {
+      setSelectedServiceId(flat[0].id);
+    }
+  }, [groupedServices, selectedServiceId]);
 
   const { year, monthIndex, daysInMonth, startWeekday } = useMemo(() => {
     const y = calendarMonth.getFullYear();
@@ -80,6 +92,7 @@ export default function BookingPage() {
 
   async function handleConfirm() {
     setLoading(true);
+    setBookingError(null);
     const supabase = getSupabase();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -93,18 +106,27 @@ export default function BookingPage() {
 
     const extras = { ...pricing, time_window: timeWindow };
 
-    const { error } = await supabase.from("bookings").insert({
+    const insertRow: Record<string, unknown> = {
       user_id: user.id,
       service_id: selectedServiceId,
       scheduled_time: scheduledTime.toISOString(),
       status: "pending",
       extras,
-    });
+    };
+
+    let { error } = await supabase.from("bookings").insert(insertRow as never);
+    const msg = error?.message?.toLowerCase() ?? "";
+    if (error && (msg.includes("extras") || msg.includes("column") || msg.includes("schema"))) {
+      const { extras: _drop, ...withoutExtras } = insertRow;
+      ({ error } = await supabase.from("bookings").insert(withoutExtras as never));
+    }
 
     setLoading(false);
-    if (!error) {
-      router.push("/pricing");
+    if (error) {
+      setBookingError(error.message || "Could not create booking. Run latest Supabase migrations (bookings.extras).");
+      return;
     }
+    router.push("/pricing");
   }
 
   const scrollBottomPad = "pb-[calc(13rem+env(safe-area-inset-bottom,0px))]";
@@ -155,9 +177,10 @@ export default function BookingPage() {
           </div>
 
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-2">
-            Service Type
+            Service
           </h3>
-          <div className="px-4 pb-2 flex gap-2 overflow-x-auto no-scrollbar">
+          <p className="px-4 text-xs text-slate-500 mb-2">Filter category, then pick one service from the list.</p>
+          <div className="px-4 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
             {categories.map((category) => (
               <button
                 key={category}
@@ -173,24 +196,30 @@ export default function BookingPage() {
               </button>
             ))}
           </div>
-          <div className="px-4 grid grid-cols-1 gap-2">
-            {visibleServices.map((service) => (
-              <button
-                key={service.id}
-                type="button"
-                onClick={() => setSelectedServiceId(service.id)}
-                className={`w-full rounded-xl p-3 border text-left ${
-                  selectedServiceId === service.id
-                    ? "border-primary bg-primary/5"
-                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
-                }`}
+          <div className="px-4 pb-2">
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
+              Choose service
+            </label>
+            <div className="relative">
+              <select
+                value={selectedServiceId}
+                onChange={(e) => setSelectedServiceId(Number(e.target.value))}
+                className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-3.5 pl-4 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
-                <p className="font-bold text-sm">{service.name}</p>
-                <p className="text-xs text-slate-500">
-                  {service.category} • ${service.base_price.toFixed(2)}
-                </p>
-              </button>
-            ))}
+                {groupedServices.map(({ category, items }) => (
+                  <optgroup key={category} label={category}>
+                    {items.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} — ${s.base_price.toFixed(2)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xl">
+                expand_more
+              </span>
+            </div>
           </div>
 
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-4">
@@ -363,6 +392,11 @@ export default function BookingPage() {
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto z-30 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          {bookingError && (
+            <p className="text-red-500 text-xs font-medium mb-2 px-0.5" role="alert">
+              {bookingError}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => setShowBreakdown((v) => !v)}

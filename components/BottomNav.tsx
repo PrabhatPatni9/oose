@@ -1,7 +1,15 @@
 "use client";
 import Link from "next/link";
 
-type UserNavItem = "home" | "bookings" | "support" | "profile" | "history" | "reminders" | "referrals" | "pricing";
+type UserNavItem =
+  | "home"
+  | "bookings"
+  | "support"
+  | "profile"
+  | "history"
+  | "reminders"
+  | "referrals"
+  | "pricing";
 type ProviderNavItem = "schedule" | "earnings" | "feedback" | "profile";
 
 interface UserBottomNavProps {
@@ -67,6 +75,14 @@ export default function BottomNav(props: BottomNavProps) {
           <span className="material-symbols-outlined text-[24px]">calendar_month</span>
         </div>
         <p className={`text-xs leading-normal tracking-[0.015em] ${a === "bookings" || a === "history" ? "font-semibold" : "font-medium"}`}>Bookings</p>
+      </Link>
+      <Link href="/reminders" className={`${base} ${a === "reminders" ? active : inactive}`}>
+        <div className="flex h-8 items-center justify-center">
+          <span className="material-symbols-outlined text-[24px]" style={a === "reminders" ? { fontVariationSettings: "'FILL' 1" } : {}}>
+            notifications_active
+          </span>
+        </div>
+        <p className={`text-xs leading-normal tracking-[0.015em] ${a === "reminders" ? "font-semibold" : "font-medium"}`}>Reminders</p>
       </Link>
       <Link href="/support" className={`${base} ${a === "support" ? active : inactive}`}>
         <div className="flex h-8 items-center justify-center">

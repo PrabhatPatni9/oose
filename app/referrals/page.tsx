@@ -1,16 +1,79 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
 
+interface ProviderCard {
+  id: number;
+  skills: string;
+  rating: number;
+  users: { name: string; email: string } | null;
+}
+
+interface ReferralRow {
+  id: number;
+  created_at: string;
+  referee_id: string | null;
+}
+
 export default function ReferralsPage() {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
-  const [inviteCode, setInviteCode] = useState("HSBMS-FRIEND");
-  const [invited, setInvited] = useState(0);
-  const [booked, setBooked] = useState(0);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [rows, setRows] = useState<ReferralRow[]>([]);
+  const [bookedCount, setBookedCount] = useState(0);
+  const [providers, setProviders] = useState<ProviderCard[]>([]);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const supabase = getSupabase();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) {
+      router.push("/login");
+      return;
+    }
+    const { data: me } = await supabase.from("users").select("referral_code").eq("id", auth.user.id).maybeSingle();
+    const code =
+      (me?.referral_code as string | null) ||
+      `HSBMS-${auth.user.id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+    setInviteCode(code);
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    setInviteLink(`${origin}/login?ref=${encodeURIComponent(code)}`);
+
+    const { data: refData } = await supabase
+      .from("referrals")
+      .select("id, created_at, referee_id")
+      .eq("referrer_id", auth.user.id)
+      .order("created_at", { ascending: false });
+    const list = (refData as ReferralRow[] | null) ?? [];
+    setRows(list);
+
+    const { data: bookedRpc, error: bookedErr } = await supabase.rpc("referral_booked_referee_count", {
+      p_referrer: auth.user.id,
+    });
+    if (bookedErr) {
+      setBookedCount(0);
+    } else {
+      setBookedCount(typeof bookedRpc === "number" ? bookedRpc : 0);
+    }
+
+    const { data: prov } = await supabase
+      .from("service_providers")
+      .select("id, skills, rating, users(name, email)")
+      .order("rating", { ascending: false })
+      .limit(12);
+    setProviders((prov as ProviderCard[] | null) ?? []);
+  }, [router]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const invited = rows.length;
+  const earned = useMemo(() => bookedCount * 50, [bookedCount]);
 
   function copyCode() {
     navigator.clipboard.writeText(inviteCode).then(() => {
@@ -19,108 +82,113 @@ export default function ReferralsPage() {
     });
   }
 
-  useEffect(() => {
-    async function loadReferralData() {
-      const supabase = getSupabase();
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) {
-        router.push("/login");
-        return;
-      }
-      setInviteCode(`HSBMS-${auth.user.id.slice(0, 8).toUpperCase()}`);
-      const { data } = await supabase
-        .from("referrals")
-        .select("id, referee_id")
-        .eq("referrer_id", auth.user.id);
-      const rows = data ?? [];
-      setInvited(rows.length);
-      setBooked(rows.filter((r) => r.referee_id).length);
-    }
-    loadReferralData();
-  }, [router]);
-  const earned = useMemo(() => booked * 50, [booked]);
+  function copyLink() {
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
-  const providers = [
-    {
-      name: "Alex's Expert Plumbing",
-      sub: "Master Plumber • 12 years exp.",
-      rating: "4.9",
-      img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBRd_ZQ8KNeWxWzy_7UdFVtQHnolGVHJ9IUxq_XOM5Jry-hq777TVOa1J3Dg_ZYCU0QA1JT5TCuXbkzeGbdKshSuHVmyQoFCDZG80eAY6SkMJIFZnGda1ZXT7GUHCpmlDKhcO-kuy5iYIew4juUkL7kaLW0L37kvUx5qjWERwS6xMNLJRsTpZueJNAWjApvtSqkj5vGtJ8toAae0bOsqNU2Y4rHwZlmystMvwMBI4ccuJQtwOOBP7ze916GdswEvDeUYv0_5r7_RGtH",
-      rec: "Recommended by Sarah & 2 others",
-    },
-    {
-      name: "EcoClean Solutions",
-      sub: "Eco-Friendly Home Cleaning",
-      rating: "5.0",
-      img: "https://lh3.googleusercontent.com/aida-public/AB6AXuDIbnVuxgwM61Y_ljiQD-1rl1DxBB6hOR1PtW0d9WaLXhamRRpKrD_DN2I10J8Ch1hbi2wApSQeq-23hcluHyp5Y7uUD_lQzfQTqAfRc-Cf89FKUwQfhxVxO52VeBKymDP4fdaZoxdIqxZ9aqolfZxPe6slvcPCKgTTWRxFg1VHIqqFH6TG5DDQ30p7CJh9KDLO7UwCSEGF2JAggSW25LK9q8TB24DazqQUbG08rqR0uWdOh8Z8dvHQAEQn1Ny8n3X5f3nC8amy2zDs",
-      rec: "Recommended by Michael",
-    },
-  ];
+  async function shareInvite() {
+    const payload = {
+      title: "Join HSBMS",
+      text: `Use my referral code ${inviteCode} — we both get $50 credit when you book.`,
+      url: inviteLink,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(payload);
+        setShareStatus("Shared!");
+      } else {
+        copyLink();
+        setShareStatus("Link copied (share not available on this device).");
+      }
+    } catch {
+      copyLink();
+    }
+    setTimeout(() => setShareStatus(null), 3000);
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
       <MobileFrame>
-        <div className="flex h-auto min-h-screen flex-col bg-background-light dark:bg-background-dark overflow-x-hidden pb-24">
-          {/* Header */}
+        <div className="flex min-h-screen flex-col bg-background-light dark:bg-background-dark overflow-x-hidden pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]">
           <div className="sticky top-0 z-50 flex items-center bg-white/80 dark:bg-background-dark/80 backdrop-blur-md p-4 justify-between border-b border-primary/10">
             <button
+              type="button"
               onClick={() => router.back()}
-              className="text-slate-900 dark:text-slate-100 flex size-10 shrink-0 items-center justify-center"
+              className="text-slate-900 dark:text-slate-100 flex size-10 shrink-0 items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <span className="material-symbols-outlined">arrow_back_ios</span>
             </button>
             <h2 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
-              Referrals &amp; Trust
+              Referrals &amp; trust
             </h2>
-            <div className="flex w-10 items-center justify-end">
-              <button className="flex items-center justify-center rounded-lg h-10 w-10 bg-transparent text-slate-900 dark:text-slate-100">
-                <span className="material-symbols-outlined">share</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={shareInvite}
+              className="flex size-10 items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100"
+              aria-label="Share invite"
+            >
+              <span className="material-symbols-outlined">share</span>
+            </button>
           </div>
 
-          {/* Hero Section */}
+          {shareStatus && <p className="text-center text-xs text-primary py-2 px-4">{shareStatus}</p>}
+
           <div className="p-4">
             <div className="flex flex-col items-stretch justify-start rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-900 border border-primary/5">
               <div
                 className="w-full bg-center bg-no-repeat aspect-[16/9] bg-cover relative"
-                style={{ backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuA6T94_gJ45ybNodcl-3u5qZqBBIeIKqKCqqrlZLLMjM2uqbpTo51rdChBSlhNu1SqnHr3X-B-cmdHr_h2S2CTfFkdKcgJvCb3LIjdLS3UTYWEaYAzM_KehSWI9sSFvUbkWbDs5koWX-fGlCq_XyT1M9KLCL3q2cWQoEnjBn0DeWZbDbyuFvixPT5UYWafcKvk_9LEGb4FcRTk4SceGzjtf4cSCfX_sCJwnSRnTz4Jaas_Rlu83rcl1GkPLf_6mRPVld45GiBboumpF")` }}
+                style={{
+                  backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuA6T94_gJ45ybNodcl-3u5qZqBBIeIKqKCqqrlZLLMjM2uqbpTo51rdChBSlhNu1SqnHr3X-B-cmdHr_h2S2CTfFkdKcgJvCb3LIjdLS3UTYWEaYAzM_KehSWI9sSFvUbkWbDs5koWX-fGlCq_XyT1M9KLCL3q2cWQoEnjBn0DeWZbDbyuFvixPT5UYWafcKvk_9LEGb4FcRTk4SceGzjtf4cSCfX_sCJwnSRnTz4Jaas_Rlu83rcl1GkPLf_6mRPVld45GiBboumpF")`,
+                }}
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
                   <div className="text-white">
                     <h3 className="text-2xl font-bold mb-1">Give $50, Get $50</h3>
-                    <p className="text-sm opacity-90">When your friends book their first house cleaning or repair.</p>
+                    <p className="text-sm opacity-90">Friends sign up with your link or code, book once, you both earn.</p>
                   </div>
                 </div>
               </div>
-              <div className="p-4 space-y-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg border border-dashed border-primary/30">
-                    <span className="text-primary font-mono font-bold tracking-wider">{inviteCode}</span>
-                    <button
-                      onClick={copyCode}
-                      className="text-primary text-sm font-bold flex items-center gap-1"
-                    >
+              <div className="p-4 space-y-3">
+                <p className="text-xs text-slate-500">
+                  Share your link — on signup we store <code className="text-primary">ref</code> and create a referral row when they register.
+                </p>
+                <div className="flex flex-col gap-2 p-3 bg-primary/5 rounded-xl border border-dashed border-primary/30">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-primary font-mono font-bold tracking-wider text-sm break-all">{inviteCode}</span>
+                    <button type="button" onClick={copyCode} className="text-primary text-sm font-bold flex items-center gap-1 shrink-0">
                       <span className="material-symbols-outlined text-sm">content_copy</span>
-                      {copied ? "Copied!" : "Copy"}
+                      {copied ? "Copied" : "Copy"}
                     </button>
                   </div>
-                  <button className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2">
-                    <span className="material-symbols-outlined">person_add</span>
-                    Invite Friends
+                  <button
+                    type="button"
+                    onClick={copyLink}
+                    className="text-left text-xs text-slate-600 dark:text-slate-400 underline break-all"
+                  >
+                    {inviteLink || "…"}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={shareInvite}
+                  className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-outlined">person_add</span>
+                  Invite friends
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Stats */}
           <div className="px-4 py-2">
-            <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold mb-4">Your Referral Status</h2>
+            <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold mb-4">Your referral status</h2>
             <div className="grid grid-cols-3 gap-3">
               {[
                 { val: String(invited), label: "Invited", color: "text-slate-900 dark:text-slate-100" },
-                { val: String(booked), label: "Booked", color: "text-primary" },
+                { val: String(bookedCount), label: "Booked", color: "text-primary" },
                 { val: `$${earned}`, label: "Earned", color: "text-green-500" },
               ].map(({ val, label, color }) => (
                 <div key={label} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-primary/5 text-center">
@@ -131,65 +199,74 @@ export default function ReferralsPage() {
             </div>
           </div>
 
-          {/* Trusted Providers */}
-          <div className="px-4 py-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold">Trusted Providers</h2>
-              <button className="text-primary text-sm font-semibold flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">add_circle</span> Recommend
-              </button>
-            </div>
-            <div className="space-y-4">
-              {providers.map((p) => (
-                <div key={p.name} className="flex gap-4 p-4 bg-white dark:bg-slate-900 rounded-xl border border-primary/5 shadow-sm">
-                  <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img className="w-16 h-16 rounded-lg object-cover" src={p.img} alt={p.name} />
-                    <div className="absolute -bottom-1 -right-1 bg-primary text-white p-0.5 rounded-full border-2 border-white">
-                      <span className="material-symbols-outlined text-[10px] font-bold">verified</span>
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-slate-900 dark:text-slate-100">{p.name}</h4>
-                        <p className="text-xs text-slate-500">{p.sub}</p>
-                      </div>
-                      <div className="flex items-center gap-1 bg-yellow-400/10 text-yellow-600 px-1.5 py-0.5 rounded text-xs font-bold">
-                        <span className="material-symbols-outlined text-[12px]">star</span> {p.rating}
-                      </div>
-                    </div>
-                    <div className="mt-2">
-                      <p className="text-[10px] text-slate-400">{p.rec}</p>
-                    </div>
+          <div className="px-4 py-4">
+            <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold mb-3">Activity</h2>
+            <div className="space-y-3">
+              {rows.length === 0 && (
+                <p className="text-sm text-slate-500 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
+                  No invites yet. Share your link to start tracking.
+                </p>
+              )}
+              {rows.map((r) => (
+                <div key={r.id} className="flex gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <span className="material-symbols-outlined text-primary bg-primary/10 p-2 rounded-full h-fit shrink-0">
+                    {r.referee_id ? "check_circle" : "mail"}
+                  </span>
+                  <div>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">
+                      {r.referee_id ? (
+                        <>
+                          <strong>Friend joined</strong> — appears in Invited. &quot;Booked&quot; counts friends who completed a service booking.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Invite pending</strong> — waiting for friend to create an account.
+                        </>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {new Date(r.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Activity Feed */}
-          <div className="px-4 py-2">
-            <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold mb-4">Recent Activity</h2>
+          <div className="px-4 py-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold">Trusted providers</h2>
+              <button
+                type="button"
+                onClick={() => router.push("/booking")}
+                className="text-primary text-sm font-semibold flex items-center gap-1"
+              >
+                <span className="material-symbols-outlined text-sm">add_circle</span> Book
+              </button>
+            </div>
             <div className="space-y-4">
-              <div className="flex gap-3">
-                <span className="material-symbols-outlined text-primary bg-primary/10 p-2 rounded-full h-fit">celebration</span>
-                <div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300">
-                    <strong>David Miller</strong> joined via your link! You&apos;ve earned a <strong>$50 credit</strong>.
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-1">2 hours ago</p>
+              {providers.length === 0 && (
+                <p className="text-sm text-slate-500">No providers listed yet.</p>
+              )}
+              {providers.map((p) => (
+                <div key={p.id} className="flex gap-4 p-4 bg-white dark:bg-slate-900 rounded-xl border border-primary/5 shadow-sm">
+                  <div className="size-16 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-primary text-3xl">engineering</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 dark:text-slate-100 truncate">{p.users?.name ?? "Provider"}</h4>
+                        <p className="text-xs text-slate-500 truncate">{p.skills}</p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-yellow-400/10 text-yellow-600 px-1.5 py-0.5 rounded text-xs font-bold shrink-0">
+                        <span className="material-symbols-outlined text-[12px]">star</span> {(Number(p.rating) || 0).toFixed(1)}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2 truncate">{p.users?.email}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="material-symbols-outlined text-slate-400 bg-slate-100 dark:bg-slate-800 p-2 rounded-full h-fit">recommend</span>
-                <div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300">
-                    <strong>Jessica</strong> recommended <strong>Pure Air HVAC</strong>.
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-1">Yesterday</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
