@@ -4,19 +4,39 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
 import { fallbackServices, ServiceItem, uniqueCategories } from "@/lib/serviceCatalog";
+import { ADDON_CATALOG, AddonSelection, computeBookingPricing } from "@/lib/bookingExtras";
 
 type TimeWindow = "morning" | "afternoon" | "evening";
+
+function startOfMonth(d: Date) {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addMonths(d: Date, n: number) {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + n);
+  return startOfMonth(x);
+}
 
 export default function BookingPage() {
   const router = useRouter();
   const [services, setServices] = useState<ServiceItem[]>(fallbackServices);
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedServiceId, setSelectedServiceId] = useState<number>(fallbackServices[0].id);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  });
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("morning");
   const [duration, setDuration] = useState(4.5);
-  const [addons, setAddons] = useState({ duct: true, windows: false, soap: false });
+  const [addons, setAddons] = useState<AddonSelection>({ duct: false, windows: false, soap: false });
   const [loading, setLoading] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
 
   useEffect(() => {
     async function loadServices() {
@@ -35,22 +55,28 @@ export default function BookingPage() {
 
   const selectedService = services.find((s) => s.id === selectedServiceId) ?? services[0];
   const basePrice = selectedService?.base_price ?? 120;
-  const addonCost = (addons.duct ? 45 : 0) + (addons.windows ? 20 : 0) + (addons.soap ? 10 : 0);
-  const total = basePrice + addonCost;
-  const discounted = total - 19.5;
+
+  const pricing = useMemo(() => {
+    const p = computeBookingPricing(basePrice, duration, addons);
+    p.time_window = timeWindow;
+    return p;
+  }, [basePrice, duration, addons, timeWindow]);
+
   const categories = useMemo(() => ["All", ...uniqueCategories(services)], [services]);
   const visibleServices = useMemo(
     () => (selectedCategory === "All" ? services : services.filter((s) => s.category === selectedCategory)),
     [selectedCategory, services],
   );
-  const dateOptions = useMemo(() => {
-    return Array.from({ length: 14 }).map((_, idx) => {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() + idx);
-      return d;
-    });
-  }, []);
+
+  const { year, monthIndex, daysInMonth, startWeekday } = useMemo(() => {
+    const y = calendarMonth.getFullYear();
+    const m = calendarMonth.getMonth();
+    const dim = new Date(y, m + 1, 0).getDate();
+    const sw = new Date(y, m, 1).getDay();
+    return { year: y, monthIndex: m, daysInMonth: dim, startWeekday: sw };
+  }, [calendarMonth]);
+
+  const monthLabel = calendarMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   async function handleConfirm() {
     setLoading(true);
@@ -65,11 +91,14 @@ export default function BookingPage() {
     const scheduledTime = new Date(selectedDate);
     scheduledTime.setHours(timeWindow === "morning" ? 10 : timeWindow === "afternoon" ? 13 : 17, 0, 0, 0);
 
+    const extras = { ...pricing, time_window: timeWindow };
+
     const { error } = await supabase.from("bookings").insert({
       user_id: user.id,
       service_id: selectedServiceId,
       scheduled_time: scheduledTime.toISOString(),
       status: "pending",
+      extras,
     });
 
     setLoading(false);
@@ -78,14 +107,18 @@ export default function BookingPage() {
     }
   }
 
+  const scrollBottomPad = "pb-[calc(13rem+env(safe-area-inset-bottom,0px))]";
+
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
       <MobileFrame>
-        <div className="flex flex-col h-auto min-h-screen bg-background-light dark:bg-background-dark overflow-x-hidden pb-32">
-          {/* Top App Bar */}
-          <div className="flex items-center bg-white dark:bg-slate-900 p-4 pb-2 justify-between sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
+        <div
+          className={`flex flex-col min-h-screen bg-background-light dark:bg-background-dark overflow-x-hidden ${scrollBottomPad}`}
+        >
+          <div className="flex items-center bg-white dark:bg-slate-900 p-4 pb-2 justify-between sticky top-0 z-20 border-b border-slate-200 dark:border-slate-800">
             <button
-              className="text-slate-900 dark:text-slate-100 flex size-12 shrink-0 items-center cursor-pointer"
+              type="button"
+              className="text-slate-900 dark:text-slate-100 flex size-12 shrink-0 items-center cursor-pointer rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => router.back()}
             >
               <span className="material-symbols-outlined">arrow_back_ios</span>
@@ -95,12 +128,13 @@ export default function BookingPage() {
             </h2>
           </div>
 
-          {/* Service Summary */}
           <div className="p-4">
             <div className="flex flex-col items-stretch justify-start rounded-xl shadow-sm bg-white dark:bg-slate-900 overflow-hidden border border-slate-200 dark:border-slate-800">
               <div
                 className="w-full bg-center bg-no-repeat aspect-video bg-cover"
-                style={{ backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuAacX2P-KKwUE4_kGJ0SroeXhru5STiYNRrFQUi0dg0YWFbL9BB2Wlo7w1gZRfU6yrqd7lBQ6RgXmhtz5XZwQq-glyo8toaboCGDJvEetm8NzjyOJDs613LSPxvBaJAQ4jJFofpIWTuPrunlLbf-nh8G_4orMdRlw1PM8lS1xok8qQ4hCiVNgfrG_WryAj3iO0L94rfwm8sB0VzFK8-WsvBxdTXQU6ijFzla2euPNVO246vdMXsikaT-u3EuMMKBhVRvjIktC8dUW11")` }}
+                style={{
+                  backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuAacX2P-KKwUE4_kGJ0SroeXhru5STiYNRrFQUi0dg0YWFbL9BB2Wlo7w1gZRfU6yrqd7lBQ6RgXmhtz5XZwQq-glyo8toaboCGDJvEetm8NzjyOJDs613LSPxvBaJAQ4jJFofpIWTuPrunlLbf-nh8G_4orMdRlw1PM8lS1xok8qQ4hCiVNgfrG_WryAj3iO0L94rfwm8sB0VzFK8-WsvBxdTXQU6ijFzla2euPNVO246vdMXsikaT-u3EuMMKBhVRvjIktC8dUW11")`,
+                }}
               />
               <div className="flex w-full min-w-72 grow flex-col items-stretch justify-center gap-1 py-4 px-4">
                 <div className="flex justify-between items-start">
@@ -120,7 +154,6 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* Service Type */}
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-2">
             Service Type
           </h3>
@@ -128,9 +161,12 @@ export default function BookingPage() {
             {categories.map((category) => (
               <button
                 key={category}
+                type="button"
                 onClick={() => setSelectedCategory(category)}
                 className={`rounded-lg px-3 py-2 text-xs font-bold whitespace-nowrap ${
-                  selectedCategory === category ? "bg-primary text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                  selectedCategory === category
+                    ? "bg-primary text-white"
+                    : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
                 }`}
               >
                 {category}
@@ -141,6 +177,7 @@ export default function BookingPage() {
             {visibleServices.map((service) => (
               <button
                 key={service.id}
+                type="button"
                 onClick={() => setSelectedServiceId(service.id)}
                 className={`w-full rounded-xl p-3 border text-left ${
                   selectedServiceId === service.id
@@ -149,58 +186,85 @@ export default function BookingPage() {
                 }`}
               >
                 <p className="font-bold text-sm">{service.name}</p>
-                <p className="text-xs text-slate-500">{service.category} • ${service.base_price.toFixed(2)}</p>
+                <p className="text-xs text-slate-500">
+                  {service.category} • ${service.base_price.toFixed(2)}
+                </p>
               </button>
             ))}
           </div>
 
-          {/* Date Picker */}
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-4">
             Select Date
           </h3>
-          <div className="flex flex-wrap items-center justify-center gap-6 p-4">
+          <div className="px-4 pb-2">
             <div className="flex min-w-full flex-col gap-0.5 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
               <div className="flex items-center p-1 justify-between mb-2">
-                <button className="text-slate-900 dark:text-slate-100">
+                <button
+                  type="button"
+                  className="text-slate-900 dark:text-slate-100 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => setCalendarMonth((m) => addMonths(m, -1))}
+                  aria-label="Previous month"
+                >
                   <span className="material-symbols-outlined">chevron_left</span>
                 </button>
                 <p className="text-slate-900 dark:text-slate-100 text-base font-bold leading-tight flex-1 text-center">
-                  {selectedDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                  {monthLabel}
                 </p>
-                <button className="text-slate-900 dark:text-slate-100">
+                <button
+                  type="button"
+                  className="text-slate-900 dark:text-slate-100 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => setCalendarMonth((m) => addMonths(m, 1))}
+                  aria-label="Next month"
+                >
                   <span className="material-symbols-outlined">chevron_right</span>
                 </button>
               </div>
               <div className="grid grid-cols-7 text-center">
-                {["S","M","T","W","T","F","S"].map((d, i) => (
-                  <p key={i} className="text-slate-400 text-[13px] font-bold h-10 flex items-center justify-center">{d}</p>
+                {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                  <p key={i} className="text-slate-400 text-[13px] font-bold h-10 flex items-center justify-center">
+                    {d}
+                  </p>
                 ))}
-                {dateOptions.map((date) => (
-                  <button
-                    key={date.toISOString()}
-                    onClick={() => setSelectedDate(date)}
-                    className="h-10 w-full text-sm font-medium"
-                  >
-                    <div className={`flex size-full items-center justify-center rounded-full ${
-                      selectedDate.toDateString() === date.toDateString()
-                        ? "bg-primary text-white shadow-lg shadow-primary/30"
-                        : "text-slate-900 dark:text-slate-100"
-                    }`}>
-                      {date.getDate()}
-                    </div>
-                  </button>
+                {Array.from({ length: startWeekday }).map((_, i) => (
+                  <div key={`pad-${i}`} className="h-10" />
                 ))}
+                {Array.from({ length: daysInMonth }).map((_, idx) => {
+                  const day = idx + 1;
+                  const date = new Date(year, monthIndex, day);
+                  const isSelected = selectedDate.toDateString() === date.toDateString();
+                  const isToday = new Date().toDateString() === date.toDateString();
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setSelectedDate(date)}
+                      className="h-10 w-full text-sm font-medium"
+                    >
+                      <div
+                        className={`flex size-full items-center justify-center rounded-full ${
+                          isSelected
+                            ? "bg-primary text-white shadow-lg shadow-primary/30"
+                            : isToday
+                              ? "ring-2 ring-primary/40 text-slate-900 dark:text-slate-100"
+                              : "text-slate-900 dark:text-slate-100"
+                        }`}
+                      >
+                        {day}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          {/* Time Window */}
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-4">
             Time Window
           </h3>
           <div className="px-4 py-2 flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 onClick={() => setTimeWindow("morning")}
                 className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 ${
                   timeWindow === "morning"
@@ -213,6 +277,7 @@ export default function BookingPage() {
                 <span className="text-xs opacity-80">8:00 AM - 12:00 PM</span>
               </button>
               <button
+                type="button"
                 onClick={() => setTimeWindow("afternoon")}
                 className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 ${
                   timeWindow === "afternoon"
@@ -226,6 +291,7 @@ export default function BookingPage() {
               </button>
             </div>
             <button
+              type="button"
               onClick={() => setTimeWindow("evening")}
               className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 ${
                 timeWindow === "evening"
@@ -238,7 +304,6 @@ export default function BookingPage() {
             </button>
           </div>
 
-          {/* Duration */}
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-4">
             Service Duration
           </h3>
@@ -256,26 +321,26 @@ export default function BookingPage() {
               onChange={(e) => setDuration(parseFloat(e.target.value))}
               className="w-full accent-primary"
             />
+            <p className="text-[11px] text-slate-500 mt-2">
+              Extra time beyond 2h adds $10/hr (shown in your breakdown).
+            </p>
             <div className="flex justify-between mt-3 px-1">
-              {["2h","4h","6h","8h"].map(l => (
-                <span key={l} className="text-[10px] text-slate-400">{l}</span>
+              {["2h", "4h", "6h", "8h"].map((l) => (
+                <span key={l} className="text-[10px] text-slate-400">
+                  {l}
+                </span>
               ))}
             </div>
           </div>
 
-          {/* Add-ons */}
           <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-6">
             Popular Add-ons
           </h3>
-          <div className="px-4 flex flex-col gap-2">
-            {[
-              { key: "duct" as const, icon: "wind_power", label: "AC Duct Cleaning", price: "+$45.00" },
-              { key: "windows" as const, icon: "window", label: "Exterior Windows", price: "+$20.00" },
-              { key: "soap" as const, icon: "sanitizer", label: "Eco-Friendly Soap", price: "+$10.00" },
-            ].map(({ key, icon, label, price }) => (
-              <div
+          <div className="px-4 flex flex-col gap-2 mb-2">
+            {ADDON_CATALOG.map(({ key, icon, label, amount }) => (
+              <label
                 key={key}
-                className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"
+                className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-3">
                   <div className="size-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -283,7 +348,7 @@ export default function BookingPage() {
                   </div>
                   <div>
                     <p className="font-bold text-sm">{label}</p>
-                    <p className="text-xs text-slate-500">{price}</p>
+                    <p className="text-xs text-slate-500">+${amount.toFixed(2)}</p>
                   </div>
                 </div>
                 <input
@@ -292,30 +357,66 @@ export default function BookingPage() {
                   onChange={(e) => setAddons({ ...addons, [key]: e.target.checked })}
                   className="size-6 rounded-md border-slate-300 accent-primary"
                 />
-              </div>
+              </label>
             ))}
           </div>
+        </div>
 
-          {/* Footer */}
-          <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 pb-8 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
-            <div className="flex items-center justify-between mb-4 px-1">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">Pricing Breakdown</span>
-                <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
+        <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto z-30 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          <button
+            type="button"
+            onClick={() => setShowBreakdown((v) => !v)}
+            className="flex w-full items-center justify-between mb-2 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 dark:text-slate-400 text-sm font-semibold">Pricing breakdown</span>
+              <span className="material-symbols-outlined text-slate-500 text-sm">
+                {showBreakdown ? "expand_less" : "expand_more"}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-slate-400 line-through text-xs mr-2">${pricing.subtotal.toFixed(2)}</span>
+              <span className="text-slate-900 dark:text-slate-100 text-xl font-bold">${pricing.total.toFixed(2)}</span>
+            </div>
+          </button>
+          {showBreakdown && (
+            <div className="mb-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Base service</span>
+                <span className="font-medium">${pricing.base_price.toFixed(2)}</span>
               </div>
-              <div className="text-right">
-                <span className="text-slate-400 line-through text-xs mr-2">${total.toFixed(2)}</span>
-                <span className="text-slate-900 dark:text-slate-100 text-xl font-bold">${discounted.toFixed(2)}</span>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Duration ({duration}h)</span>
+                <span className="font-medium">${pricing.duration_charge.toFixed(2)}</span>
+              </div>
+              {pricing.addon_lines.map((a) => (
+                <div key={a.key} className="flex justify-between">
+                  <span className="text-slate-500">{a.label}</span>
+                  <span className="font-medium">${a.amount.toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-primary">
+                <span>{pricing.promo_label}</span>
+                <span>-${pricing.promo_discount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Tax ({(pricing.tax_rate * 100).toFixed(1)}%)</span>
+                <span className="font-medium">${pricing.tax_amount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-200 dark:border-slate-600 font-bold">
+                <span>Total due</span>
+                <span>${pricing.total.toFixed(2)}</span>
               </div>
             </div>
-            <button
-              onClick={handleConfirm}
-              disabled={loading}
-              className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-60"
-            >
-              {loading ? "Confirming..." : "Confirm Booking"}
-            </button>
-          </div>
+          )}
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={loading}
+            className="w-full bg-primary text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-primary/20 hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-60"
+          >
+            {loading ? "Confirming..." : "Confirm Booking"}
+          </button>
         </div>
       </MobileFrame>
     </div>
