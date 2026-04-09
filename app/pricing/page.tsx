@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
@@ -24,9 +24,15 @@ function isBookingExtras(x: unknown): x is BookingExtras {
   );
 }
 
-export default function PricingPage() {
+const bookingSelectWithExtras =
+  "id, scheduled_time, extras, services(name, base_price, category)";
+const bookingSelectNoExtras = "id, scheduled_time, services(name, base_price, category)";
+
+function PricingPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [booking, setBooking] = useState<PricingBooking | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
 
   const loadBooking = useCallback(async () => {
@@ -36,14 +42,49 @@ export default function PricingPage() {
       router.push("/login");
       return;
     }
-    const { data } = await supabase
-      .from("bookings")
-      .select("id, scheduled_time, extras, services(name, base_price, category)")
-      .eq("user_id", auth.user.id)
-      .in("status", ["pending", "confirmed", "in_progress"])
-      .order("scheduled_time", { ascending: true })
-      .limit(1)
-      .single();
+
+    setLoadError(null);
+
+    const paramId = searchParams.get("bookingId");
+    const preferredId = paramId ? parseInt(paramId, 10) : NaN;
+    const hasPreferred = Number.isFinite(preferredId) && preferredId > 0;
+
+    async function fetchOne(selectStr: string) {
+      let q = supabase
+        .from("bookings")
+        .select(selectStr)
+        .eq("user_id", auth.user!.id)
+        .in("status", ["pending", "confirmed", "in_progress"]);
+
+      if (hasPreferred) {
+        q = q.eq("id", preferredId);
+      } else {
+        q = q.order("scheduled_time", { ascending: false }).limit(1);
+      }
+
+      return q.maybeSingle();
+    }
+
+    let { data, error } = await fetchOne(bookingSelectWithExtras);
+
+    // If `extras` is missing or PostgREST errors on that column, retry without it.
+    if (error) {
+      const retry = await fetchOne(bookingSelectNoExtras);
+      if (!retry.error) {
+        data = retry.data;
+        error = null;
+      } else {
+        data = retry.data;
+        error = retry.error;
+      }
+    }
+
+    if (error) {
+      console.error("pricing loadBooking:", error);
+      setLoadError(error.message || "Could not load booking.");
+      setBooking(null);
+      return;
+    }
 
     const row = data as {
       id: number;
@@ -64,7 +105,7 @@ export default function PricingPage() {
       extras: extrasParsed,
       services: row.services,
     });
-  }, [router]);
+  }, [router, searchParams]);
 
   useEffect(() => {
     loadBooking();
@@ -155,6 +196,11 @@ export default function PricingPage() {
           </div>
 
           <div className="flex-1 px-5 py-5">
+            {loadError && (
+              <p className="text-red-500 text-sm mb-3" role="alert">
+                {loadError}
+              </p>
+            )}
             {!booking && (
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 text-sm text-slate-600 dark:text-slate-400">
                 No active booking found.{" "}
@@ -239,5 +285,19 @@ export default function PricingPage() {
         </div>
       </MobileFrame>
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500 text-sm">
+          Loading…
+        </div>
+      }
+    >
+      <PricingPageContent />
+    </Suspense>
   );
 }

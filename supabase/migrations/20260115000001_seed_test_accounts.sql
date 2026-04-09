@@ -1,4 +1,4 @@
--- Demo / college project seed: run after the three test accounts exist in auth.users.
+-- Demo seed data: run after the listed accounts exist in auth.users.
 -- Emails: km1@somaiya.edu (user), manav13p@gmail.com (provider), manav139@gmail.com (admin)
 
 -- Roles in public.users (source of truth for admin console + RLS)

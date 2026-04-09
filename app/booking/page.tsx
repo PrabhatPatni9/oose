@@ -114,11 +114,11 @@ export default function BookingPage() {
       extras,
     };
 
-    let { error } = await supabase.from("bookings").insert(insertRow as never);
+    let { data: inserted, error } = await supabase.from("bookings").insert(insertRow as never).select("id").maybeSingle();
     const msg = error?.message?.toLowerCase() ?? "";
     if (error && (msg.includes("extras") || msg.includes("column") || msg.includes("schema"))) {
       const { extras: _drop, ...withoutExtras } = insertRow;
-      ({ error } = await supabase.from("bookings").insert(withoutExtras as never));
+      ({ data: inserted, error } = await supabase.from("bookings").insert(withoutExtras as never).select("id").maybeSingle());
     }
 
     setLoading(false);
@@ -126,7 +126,12 @@ export default function BookingPage() {
       setBookingError(error.message || "Could not create booking. Run latest Supabase migrations (bookings.extras).");
       return;
     }
-    router.push("/pricing");
+    const newId = inserted?.id;
+    if (typeof newId === "number") {
+      router.push(`/pricing?bookingId=${newId}`);
+    } else {
+      router.push("/pricing");
+    }
   }
 
   const scrollBottomPad = "pb-[calc(13rem+env(safe-area-inset-bottom,0px))]";
@@ -155,7 +160,8 @@ export default function BookingPage() {
               <div
                 className="w-full bg-center bg-no-repeat aspect-video bg-cover"
                 style={{
-                  backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuAacX2P-KKwUE4_kGJ0SroeXhru5STiYNRrFQUi0dg0YWFbL9BB2Wlo7w1gZRfU6yrqd7lBQ6RgXmhtz5XZwQq-glyo8toaboCGDJvEetm8NzjyOJDs613LSPxvBaJAQ4jJFofpIWTuPrunlLbf-nh8G_4orMdRlw1PM8lS1xok8qQ4hCiVNgfrG_WryAj3iO0L94rfwm8sB0VzFK8-WsvBxdTXQU6ijFzla2euPNVO246vdMXsikaT-u3EuMMKBhVRvjIktC8dUW11")`,
+                  backgroundImage:
+                    'url("https://images.unsplash.com/photo-1556912172-45b7abe8b7e1?auto=format&fit=crop&w=1200&q=80")',
                 }}
               />
               <div className="flex w-full min-w-72 grow flex-col items-stretch justify-center gap-1 py-4 px-4">

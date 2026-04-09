@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
 import { fetchAdminSnapshot } from "@/lib/adminSnapshotClient";
+import { resolveSessionRole } from "@/lib/roleRoutes";
 
 type Tab = "overview" | "tickets" | "users" | "providers" | "bookings" | "referrals";
 
@@ -64,8 +65,8 @@ export default function AdminPage() {
       return;
     }
 
-    const { data: me } = await supabase.from("users").select("role").eq("id", auth.user.id).maybeSingle();
-    if (me?.role !== "admin") {
+    const role = await resolveSessionRole(supabase, auth.user);
+    if (role !== "admin") {
       router.push("/dashboard");
       return;
     }

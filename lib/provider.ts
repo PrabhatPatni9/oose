@@ -3,7 +3,7 @@ export async function ensureProviderProfile(supabase: any, userId: string) {
     .from("service_providers")
     .select("id")
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
   if (existing?.id) {
     return existing.id as number;
@@ -17,7 +17,7 @@ export async function ensureProviderProfile(supabase: any, userId: string) {
       rating: 0,
     })
     .select("id")
-    .single();
+    .maybeSingle();
 
   return created?.id as number | undefined;
 }

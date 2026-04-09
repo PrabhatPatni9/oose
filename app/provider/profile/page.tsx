@@ -5,6 +5,7 @@ import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
 import { ensureProviderProfile } from "@/lib/provider";
+import { guardProviderShell } from "@/lib/roleRoutes";
 
 export default function ProviderProfilePage() {
   const router = useRouter();
@@ -21,6 +22,8 @@ export default function ProviderProfilePage() {
         router.push("/login");
         return;
       }
+      const ok = await guardProviderShell(router, supabase, auth.user);
+      if (!ok) return;
       setEmail(auth.user.email ?? "");
       setName(auth.user.user_metadata?.name ?? "Provider");
 
@@ -30,7 +33,7 @@ export default function ProviderProfilePage() {
         .from("service_providers")
         .select("skills, rating")
         .eq("id", providerId)
-        .single();
+        .maybeSingle();
       if (providerData) {
         setSkills(providerData.skills ?? "");
         setRating(providerData.rating ?? 0);

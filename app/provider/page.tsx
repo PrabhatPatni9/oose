@@ -5,6 +5,7 @@ import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
 import { ensureProviderProfile } from "@/lib/provider";
+import { guardProviderShell } from "@/lib/roleRoutes";
 
 interface Booking {
   id: number;
@@ -47,6 +48,9 @@ export default function ProviderPage() {
         router.push("/login");
         return;
       }
+
+      const ok = await guardProviderShell(router, supabase, user);
+      if (!ok) return;
 
       const providerId = await ensureProviderProfile(supabase, user.id);
       if (!providerId) return;

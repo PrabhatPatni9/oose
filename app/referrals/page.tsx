@@ -141,7 +141,8 @@ export default function ReferralsPage() {
               <div
                 className="w-full bg-center bg-no-repeat aspect-[16/9] bg-cover relative"
                 style={{
-                  backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuA6T94_gJ45ybNodcl-3u5qZqBBIeIKqKCqqrlZLLMjM2uqbpTo51rdChBSlhNu1SqnHr3X-B-cmdHr_h2S2CTfFkdKcgJvCb3LIjdLS3UTYWEaYAzM_KehSWI9sSFvUbkWbDs5koWX-fGlCq_XyT1M9KLCL3q2cWQoEnjBn0DeWZbDbyuFvixPT5UYWafcKvk_9LEGb4FcRTk4SceGzjtf4cSCfX_sCJwnSRnTz4Jaas_Rlu83rcl1GkPLf_6mRPVld45GiBboumpF")`,
+                  backgroundImage:
+                    'url("https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80")',
                 }}
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">

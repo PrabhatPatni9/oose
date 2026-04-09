@@ -1,8 +1,24 @@
 -- =============================================================================
--- HSBMS: apply in Supabase Dashboard → SQL Editor for project:
---   https://xadjqqqxlpbuojjkfnoi.supabase.co
--- Safe to re-run: drops admin/reminder policies before recreate where needed.
+-- HSBMS consolidated schema + policies + seeds. Run in Supabase SQL Editor (or apply migrations).
+-- Idempotent sections use DROP IF EXISTS / tagged seed rows where noted.
 -- =============================================================================
+
+-- --- is_admin() avoids RLS recursion on public.users (EXISTS subquery on users caused 500s) ---
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.users
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_admin() to service_role;
 
 -- --- 20260110000000_booking_extras_admin_rls (idempotent policies) ---
 alter table public.bookings
@@ -11,38 +27,81 @@ alter table public.bookings
 drop policy if exists "Admins can read all users" on public.users;
 create policy "Admins can read all users"
   on public.users for select
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
 
 drop policy if exists "Admins can update user roles" on public.users;
 create policy "Admins can update user roles"
   on public.users for update
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
 
 drop policy if exists "Admins can read all bookings" on public.bookings;
 create policy "Admins can read all bookings"
   on public.bookings for select
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
 
 drop policy if exists "Admins can update bookings" on public.bookings;
 create policy "Admins can update bookings"
   on public.bookings for update
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
+
+drop policy if exists "Providers read assigned bookings" on public.bookings;
+create policy "Providers read assigned bookings"
+  on public.bookings for select
+  using (
+    exists (
+      select 1 from public.service_providers sp
+      where sp.id = bookings.provider_id and sp.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Providers update assigned bookings" on public.bookings;
+create policy "Providers update assigned bookings"
+  on public.bookings for update
+  using (
+    exists (
+      select 1 from public.service_providers sp
+      where sp.id = bookings.provider_id and sp.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Providers read customers on assigned bookings" on public.users;
+create policy "Providers read customers on assigned bookings"
+  on public.users for select
+  using (
+    exists (
+      select 1 from public.bookings b
+      join public.service_providers sp on sp.id = b.provider_id and sp.user_id = auth.uid()
+      where b.user_id = users.id
+    )
+  );
 
 drop policy if exists "Admins can read all issued reports" on public.issued_reports;
 create policy "Admins can read all issued reports"
   on public.issued_reports for select
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
 
 drop policy if exists "Admins can update issued reports" on public.issued_reports;
 create policy "Admins can update issued reports"
   on public.issued_reports for update
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
+
+drop policy if exists "Providers read reports for assigned bookings" on public.issued_reports;
+create policy "Providers read reports for assigned bookings"
+  on public.issued_reports for select
+  using (
+    booking_id is not null
+    and exists (
+      select 1 from public.bookings b
+      join public.service_providers sp on sp.id = b.provider_id and sp.user_id = auth.uid()
+      where b.id = issued_reports.booking_id
+    )
+  );
 
 drop policy if exists "Admins can manage service providers" on public.service_providers;
 create policy "Admins can manage service providers"
   on public.service_providers for all
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'))
-  with check (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin())
+  with check (public.is_admin());
 
 -- --- 20260115000000_reminders_referrals_edge_ready ---
 alter table public.users
@@ -95,15 +154,21 @@ declare
   ref_code text;
   ref_uid uuid;
   new_code text;
+  chosen_role text;
 begin
   new_code := 'HSBMS-' || upper(substr(replace(new.id::text, '-', ''), 1, 8));
+
+  chosen_role := lower(trim(coalesce(new.raw_user_meta_data->>'role', 'user')));
+  if chosen_role not in ('user', 'provider', 'admin') then
+    chosen_role := 'user';
+  end if;
 
   insert into public.users (id, name, email, role, referral_code, preferences)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
     new.email,
-    coalesce(new.raw_user_meta_data->>'role', 'user'),
+    chosen_role,
     new_code,
     '{"auto_reminders": true}'::jsonb
   );
@@ -142,7 +207,7 @@ delete from public.reminders where user_id is null;
 drop policy if exists "Admins read referrals" on public.referrals;
 create policy "Admins read referrals"
   on public.referrals for select
-  using (exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin'));
+  using (public.is_admin());
 
 -- --- 20260115000001_seed_test_accounts ---
 update public.users u set role = 'admin'
@@ -227,6 +292,64 @@ insert into public.issued_reports (booking_id, description, status)
 select null, 'Demo ticket: test admin workflow from seeded data.', 'open'
 where not exists (select 1 from public.issued_reports where description like 'Demo ticket:%');
 
+-- --- 20260119000000_seed_rich_history (Past Services + lived-in data) ---
+do $$
+declare
+  rec record;
+  v_uid uuid;
+  v_sid int;
+  v_bid int;
+  v_sched timestamptz;
+  pid int;
+begin
+  select sp.id into pid
+  from public.service_providers sp
+  join auth.users au on au.id = sp.user_id
+  where lower(au.email) = lower('manav13p@gmail.com')
+  limit 1;
+
+  delete from public.service_history sh
+  using public.bookings b
+  where sh.booking_id = b.id
+    and coalesce(b.extras->>'hsbms_seed', '') = 'rich_history';
+
+  delete from public.bookings
+  where coalesce(extras->>'hsbms_seed', '') = 'rich_history';
+
+  for rec in
+    select * from (
+      values
+        ('km1@somaiya.edu'::text, 'AC Servicing'::text, 200, 'Pre-season AC service — coils cleaned and refrigerant checked.'::text),
+        ('km1@somaiya.edu', 'Deep Home Cleaning', 120, 'Post-renovation deep clean; windows and baseboards done.'),
+        ('km1@somaiya.edu', 'Plumbing Repair', 75, 'Kitchen trap replacement; no leaks since visit.'),
+        ('km1@somaiya.edu', 'AC Servicing', 48, 'Mid-season tune-up — filters swapped, airflow balanced.'),
+        ('km1@somaiya.edu', 'Deep Home Cleaning', 17, 'Living room + kitchen focus clean before family visit.'),
+        ('km1@somaiya.edu', 'Pest Control', 92, 'Quarterly perimeter spray — warranty note on file.'),
+        ('km1@somaiya.edu', 'HVAC Maintenance', 300, 'Annual system inspection — belts and motor OK.'),
+        ('manav13p@gmail.com', 'Beauty Services', 40, 'Hair and styling package — corporate event prep.'),
+        ('manav13p@gmail.com', 'Deep Home Cleaning', 9, 'Guest-ready refresh; same-day slot.'),
+        ('manav139@gmail.com', 'AC Servicing', 35, 'Admin account: home unit serviced — noise resolved.')
+    ) as t(email, service_name, days_ago, hist_note)
+  loop
+    select au.id into v_uid from auth.users au where lower(au.email) = lower(rec.email);
+    select sv.id into v_sid from public.services sv where sv.name = rec.service_name limit 1;
+    continue when v_uid is null or v_sid is null;
+    v_sched := now() - (rec.days_ago * interval '1 day');
+    insert into public.bookings (user_id, service_id, provider_id, scheduled_time, status, extras)
+    values (
+      v_uid,
+      v_sid,
+      pid,
+      v_sched,
+      'completed',
+      jsonb_build_object('hsbms_seed', 'rich_history', 'total', 85, 'pricing_version', 1)
+    )
+    returning id into v_bid;
+    insert into public.service_history (booking_id, completion_date, notes)
+    values (v_bid, v_sched + interval '3 hours', rec.hist_note);
+  end loop;
+end $$;
+
 -- --- 20260116000000_referral_booked_count_rpc ---
 create or replace function public.referral_booked_referee_count(p_referrer uuid)
 returns integer language plpgsql security definer set search_path = public stable as $$
@@ -243,6 +366,34 @@ begin
 end;
 $$;
 grant execute on function public.referral_booked_referee_count(uuid) to authenticated;
+
+-- --- 20260120000000_sync_provider_role_rpc ---
+create or replace function public.sync_provider_role_from_auth()
+returns text
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  want text;
+  cur text;
+begin
+  select lower(trim(coalesce(raw_user_meta_data->>'role', ''))) into want
+  from auth.users
+  where id = auth.uid();
+  if want is null or want = '' then want := 'user'; end if;
+  if want not in ('user', 'provider', 'admin') then want := 'user'; end if;
+  select u.role into cur from public.users u where u.id = auth.uid();
+  if cur is null then return 'missing_profile'; end if;
+  if cur = 'user' and want = 'provider' then
+    update public.users set role = 'provider' where id = auth.uid();
+    return 'updated_to_provider';
+  end if;
+  return coalesce(cur, 'user');
+end;
+$$;
+revoke all on function public.sync_provider_role_from_auth() from public;
+grant execute on function public.sync_provider_role_from_auth() to authenticated;
 
 -- =============================================================================
 -- Next: Edge Functions (Dashboard → Edge Functions, or CLI as project owner):

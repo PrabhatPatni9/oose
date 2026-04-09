@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
+import { homePathForRole, resolveSessionRole } from "@/lib/roleRoutes";
 import { fallbackServices, getCategoryIcon, uniqueCategories } from "@/lib/serviceCatalog";
 
 interface Booking {
@@ -25,7 +26,17 @@ export default function DashboardPage() {
       const supabase = getSupabase();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
-      if (user.user_metadata?.name) setUserName(user.user_metadata.name);
+
+      const role = await resolveSessionRole(supabase, user);
+      const dest = homePathForRole(role);
+      if (dest !== "/dashboard") {
+        router.replace(dest);
+        return;
+      }
+
+      const { data: profile } = await supabase.from("users").select("name").eq("id", user.id).maybeSingle();
+      const displayName = (profile?.name as string | undefined)?.trim() || user.user_metadata?.name || user.email?.split("@")[0] || "Alex";
+      setUserName(displayName);
 
       const { data } = await supabase
         .from("bookings")
@@ -34,7 +45,7 @@ export default function DashboardPage() {
         .in("status", ["pending", "confirmed"])
         .order("scheduled_time", { ascending: true })
         .limit(1)
-        .single();
+        .maybeSingle();
       if (data) setUpcomingBooking(data as unknown as Booking);
 
       const { data: serviceData } = await supabase
@@ -119,7 +130,10 @@ export default function DashboardPage() {
                 </div>
                 <div
                   className="flex-1 h-28 bg-center bg-no-repeat bg-cover rounded-lg bg-primary/10"
-                  style={{ backgroundImage: `url("https://lh3.googleusercontent.com/aida-public/AB6AXuAaHsIKcVAesX8rBWoGjvCpfsopWJ8sudWGB4XuCe66qocvo3uaMFM1s5LueWiEExaEKq8dE_u96OZZz7RAK6WeF5EaoA16Sn6jvWQHYd2LwpzdB-DHrAtgEaP4TYfV2wNV8pKfFhoqz-H7XFqTMTuW6DLMTTDe045w0LcMFzERfj_ch_znbB5nz5qnmZx72alEZVGr4du8xWihe6RAA2u8jM6qG_BHwCCCV16PSHtC60lk-zrMwOMMhTUgevMGXlF9eV78dZtZdhG8")` }}
+                  style={{
+                    backgroundImage:
+                      'url("https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=80")',
+                  }}
                 />
               </div>
             ) : (

@@ -22,6 +22,8 @@ const filters = [
   { label: "AC Repair", icon: "ac_unit" },
   { label: "Plumbing", icon: "plumbing" },
   { label: "Cleaning", icon: "cleaning_services" },
+  { label: "Pest Control", icon: "pest_control" },
+  { label: "Beauty", icon: "spa" },
 ];
 
 export default function HistoryPage() {
@@ -35,10 +37,16 @@ export default function HistoryPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("service_history")
-        .select("id, completion_date, notes, bookings(status, services(name, category))")
+        .select("id, completion_date, notes, bookings!inner(status, user_id, services(name, category))")
+        .eq("bookings.user_id", user.id)
         .order("completion_date", { ascending: false });
+      if (error) {
+        console.error("history load:", error);
+        setHistory([]);
+        return;
+      }
       if (data) setHistory(data as unknown as HistoryEntry[]);
     }
     loadData();

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
+import { homePathForRole, resolveSessionRole } from "@/lib/roleRoutes";
 
 const REF_STORAGE = "hsbms_referral_code";
 
@@ -32,11 +33,8 @@ export default function LoginPage() {
       setError("Account created — confirm your email if required, then sign in.");
       return;
     }
-    const { data: row } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle();
-    const dbRole = (row?.role as string | undefined) ?? "user";
-    if (dbRole === "admin") router.push("/admin");
-    else if (dbRole === "provider") router.push("/provider");
-    else router.push("/dashboard");
+    const role = await resolveSessionRole(supabase, user);
+    router.push(homePathForRole(role));
   }
 
   async function handleSubmit(e: React.FormEvent) {

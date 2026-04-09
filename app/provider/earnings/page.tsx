@@ -5,6 +5,7 @@ import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
 import { ensureProviderProfile } from "@/lib/provider";
+import { guardProviderShell } from "@/lib/roleRoutes";
 
 interface EarningBooking {
   id: number;
@@ -24,6 +25,8 @@ export default function ProviderEarningsPage() {
         router.push("/login");
         return;
       }
+      const ok = await guardProviderShell(router, supabase, auth.user);
+      if (!ok) return;
       const providerId = await ensureProviderProfile(supabase, auth.user.id);
       if (!providerId) return;
 
