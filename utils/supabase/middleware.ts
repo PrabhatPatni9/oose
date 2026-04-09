@@ -9,7 +9,7 @@ const supabaseKey =
 export const updateSession = async (request: NextRequest) => {
   let supabaseResponse = NextResponse.next({ request: { headers: request.headers } });
 
-  createServerClient(supabaseUrl, supabaseKey, {
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -23,6 +23,9 @@ export const updateSession = async (request: NextRequest) => {
       },
     },
   });
+
+  // Required to trigger session refresh logic in middleware.
+  await supabase.auth.getUser();
 
   return supabaseResponse;
 };

@@ -9,16 +9,18 @@ export default function SupportPage() {
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [ticketId, setTicketId] = useState<number | null>(null);
 
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     setLoading(true);
     const supabase = getSupabase();
-    await supabase.from("issued_reports").insert({
+    const { data } = await supabase.from("issued_reports").insert({
       description,
       status: "open",
-    });
+    }).select("id").single();
     setLoading(false);
+    setTicketId(data?.id ?? null);
     setSubmitted(true);
   }
 
@@ -42,7 +44,7 @@ export default function SupportPage() {
               <span className="material-symbols-outlined">arrow_back_ios_new</span>
             </button>
             <h2 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-tight flex-1 text-center pr-10">
-              Support Ticket #8421
+              Support Ticket {ticketId ? `#${ticketId}` : "#----"}
             </h2>
           </div>
 
@@ -128,7 +130,7 @@ export default function SupportPage() {
           <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto bg-white/80 dark:bg-background-dark/80 backdrop-blur-md p-4 pb-8 border-t border-slate-200 dark:border-slate-800">
             {submitted ? (
               <div className="w-full h-14 flex items-center justify-center bg-green-100 text-green-700 font-bold rounded-xl">
-                Issue Submitted Successfully!
+                Issue Submitted Successfully{ticketId ? ` (Ticket #${ticketId})` : ""}!
               </div>
             ) : (
               <button

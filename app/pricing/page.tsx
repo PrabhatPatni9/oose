@@ -1,18 +1,57 @@
 "use client";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
+import { getSupabase } from "@/lib/supabase";
 
-const lineItems = [
-  { label: "Base Service Cost", sub: "Fixed rate", amount: "$50.00" },
-  { label: "Duration-based Charge", sub: "3 Hours @ $10/hr", amount: "$30.00" },
-  { label: "Add-ons Subtotal", sub: "Eco-friendly products", amount: "$15.00" },
-  { label: "Taxes", sub: "VAT 8.5%", amount: "$8.50" },
-];
+interface PricingBooking {
+  id: number;
+  scheduled_time: string;
+  services: { name: string; base_price: number } | null;
+}
 
 export default function PricingPage() {
   const router = useRouter();
-  const scheduledLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  const [booking, setBooking] = useState<PricingBooking | null>(null);
+
+  useEffect(() => {
+    async function loadPricing() {
+      const supabase = getSupabase();
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) {
+        router.push("/login");
+        return;
+      }
+      const { data } = await supabase
+        .from("bookings")
+        .select("id, scheduled_time, services(name, base_price)")
+        .eq("user_id", auth.user.id)
+        .in("status", ["pending", "confirmed", "in_progress"])
+        .order("scheduled_time", { ascending: true })
+        .limit(1)
+        .single();
+      setBooking((data as PricingBooking | null) ?? null);
+    }
+    loadPricing();
+  }, [router]);
+
+  const base = booking?.services?.base_price ?? 0;
+  const durationCharge = Math.max(0, base * 0.2);
+  const addons = Math.max(0, base * 0.1);
+  const taxes = (base + durationCharge + addons) * 0.085;
+  const total = useMemo(() => base + durationCharge + addons + taxes, [base, durationCharge, addons, taxes]);
+  const scheduledLabel = new Date(booking?.scheduled_time ?? new Date().toISOString()).toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const lineItems = [
+    { label: "Base Service Cost", sub: booking?.services?.name ?? "Service", amount: `$${base.toFixed(2)}` },
+    { label: "Duration-based Charge", sub: "Estimated workload adjustment", amount: `$${durationCharge.toFixed(2)}` },
+    { label: "Add-ons Subtotal", sub: "Standard supplies and handling", amount: `$${addons.toFixed(2)}` },
+    { label: "Taxes", sub: "VAT 8.5%", amount: `$${taxes.toFixed(2)}` },
+  ];
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -39,7 +78,7 @@ export default function PricingPage() {
                 <span className="material-symbols-outlined">cleaning_services</span>
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white">Deep House Cleaning</h3>
+                <h3 className="font-bold text-slate-900 dark:text-white">{booking?.services?.name ?? "Service"}</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Scheduled for {scheduledLabel}</p>
               </div>
             </div>
@@ -76,7 +115,7 @@ export default function PricingPage() {
             <div className="flex justify-between items-end mb-6">
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Total Amount</p>
-                <h1 className="text-4xl font-extrabold text-primary leading-none">$103.50</h1>
+                <h1 className="text-4xl font-extrabold text-primary leading-none">${total.toFixed(2)}</h1>
               </div>
               <div className="text-right">
                 <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">

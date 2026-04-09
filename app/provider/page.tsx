@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
+import { ensureProviderProfile } from "@/lib/provider";
 
 interface Booking {
   id: number;
@@ -11,6 +12,12 @@ interface Booking {
   scheduled_time: string;
   users: { name: string } | null;
   services: { name: string } | null;
+}
+
+interface ReportFeedback {
+  id: number;
+  description: string;
+  created_at: string;
 }
 
 const statusFlow = ["pending", "confirmed", "in_progress", "completed"];
@@ -29,6 +36,7 @@ export default function ProviderPage() {
   const router = useRouter();
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [upcoming, setUpcoming] = useState<Booking[]>([]);
+  const [feedback, setFeedback] = useState<ReportFeedback[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -36,24 +44,38 @@ export default function ProviderPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-      const { data: providerData } = await supabase
-        .from("service_providers")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!providerData) return;
+      const providerId = await ensureProviderProfile(supabase, user.id);
+      if (!providerId) return;
 
       const { data } = await supabase
         .from("bookings")
         .select("id, status, scheduled_time, users(name), services(name)")
-        .eq("provider_id", providerData.id)
+        .eq("provider_id", providerId)
         .in("status", ["pending", "confirmed", "in_progress"])
         .order("scheduled_time", { ascending: true });
 
       if (data && data.length > 0) {
         setActiveBooking(data[0] as unknown as Booking);
         setUpcoming((data.slice(1) as unknown as Booking[]));
+      }
+
+      const { data: providerBookings } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("provider_id", providerId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      const bookingIds = (providerBookings ?? []).map((b) => b.id);
+      if (bookingIds.length > 0) {
+        const { data: reportData } = await supabase
+          .from("issued_reports")
+          .select("id, description, created_at")
+          .in("booking_id", bookingIds)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        setFeedback((reportData as ReportFeedback[] | null) ?? []);
+      } else {
+        setFeedback([]);
       }
     }
     loadData();
@@ -95,7 +117,7 @@ export default function ProviderPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto pb-24">
+          <div className="flex-1 overflow-y-auto pb-32">
             <div className="p-4">
               {/* Active Job */}
               <div className="bg-primary/10 dark:bg-primary/20 border border-primary/20 rounded-xl p-4 mb-4">
@@ -189,24 +211,30 @@ export default function ProviderPage() {
               <div className="bg-white dark:bg-slate-900 rounded-xl p-4 shadow-sm border border-slate-100 dark:border-slate-800">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-slate-900 dark:text-slate-100 text-lg font-bold">Recent Feedback</h2>
-                  <span className="text-primary text-xs font-bold uppercase cursor-pointer">View All</span>
+                  <button
+                    onClick={() => router.push("/provider/feedback")}
+                    className="text-primary text-xs font-bold uppercase cursor-pointer"
+                  >
+                    View All
+                  </button>
                 </div>
                 <div className="space-y-4">
-                  {[
-                    { stars: 5, text: "Excellent work on the faucet repair. Very professional and tidy.", author: "Michael Brown", time: "2 days ago" },
-                    { stars: 4, text: "Arrived on time and fixed the issue quickly. Highly recommend.", author: "Sarah Connor", time: "1 week ago" },
-                  ].map(({ stars, text, author, time }, i) => (
-                    <div key={i} className={i < 1 ? "border-b border-slate-100 dark:border-slate-800 pb-4" : ""}>
+                  {feedback.length === 0 && (
+                    <p className="text-sm text-slate-500">No feedback reports available yet.</p>
+                  )}
+                  {feedback.map((item, i) => (
+                    <div key={item.id} className={i < feedback.length - 1 ? "border-b border-slate-100 dark:border-slate-800 pb-4" : ""}>
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1 text-yellow-500">
                           {Array.from({ length: 5 }).map((_, j) => (
-                            <span key={j} className={`material-symbols-outlined text-sm ${j >= stars ? "text-slate-300" : ""}`}>star</span>
+                            <span key={j} className={`material-symbols-outlined text-sm ${j >= 4 ? "text-slate-300" : ""}`}>star</span>
                           ))}
                         </div>
-                        <span className="text-[10px] text-slate-400">{time}</span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                        </span>
                       </div>
-                      <p className="text-slate-800 dark:text-slate-200 text-sm italic">&ldquo;{text}&rdquo;</p>
-                      <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-1">- {author}</p>
+                      <p className="text-slate-800 dark:text-slate-200 text-sm italic">&ldquo;{item.description}&rdquo;</p>
                     </div>
                   ))}
                 </div>

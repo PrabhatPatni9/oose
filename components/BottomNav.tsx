@@ -24,7 +24,7 @@ export default function BottomNav(props: BottomNavProps) {
   if (props.variant === "provider") {
     const a = props.active;
     return (
-      <nav className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto flex gap-2 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pb-6 pt-2 z-50">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto flex gap-2 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] z-50">
         <Link href="/provider" className={`${base} ${a === "schedule" ? active : inactive}`}>
           <div className="flex h-8 items-center justify-center">
             <span className="material-symbols-outlined">calendar_today</span>
@@ -55,7 +55,7 @@ export default function BottomNav(props: BottomNavProps) {
 
   const a = props.active;
   return (
-    <nav className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto flex gap-2 border-t border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 pb-6 pt-2 z-20">
+    <nav className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto flex gap-2 border-t border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] z-20">
       <Link href="/dashboard" className={`${base} ${a === "home" ? active : inactive}`}>
         <div className="flex h-8 items-center justify-center">
           <span className="material-symbols-outlined text-[24px]" style={a === "home" ? { fontVariationSettings: "'FILL' 1" } : {}}>home</span>

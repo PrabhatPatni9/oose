@@ -1,19 +1,44 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
+import { getSupabase } from "@/lib/supabase";
 
 export default function ReferralsPage() {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [inviteCode, setInviteCode] = useState("HSBMS-FRIEND");
+  const [invited, setInvited] = useState(0);
+  const [booked, setBooked] = useState(0);
 
   function copyCode() {
-    navigator.clipboard.writeText("HSBMS-FRIEND-2024").then(() => {
+    navigator.clipboard.writeText(inviteCode).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   }
+
+  useEffect(() => {
+    async function loadReferralData() {
+      const supabase = getSupabase();
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) {
+        router.push("/login");
+        return;
+      }
+      setInviteCode(`HSBMS-${auth.user.id.slice(0, 8).toUpperCase()}`);
+      const { data } = await supabase
+        .from("referrals")
+        .select("id, referee_id")
+        .eq("referrer_id", auth.user.id);
+      const rows = data ?? [];
+      setInvited(rows.length);
+      setBooked(rows.filter((r) => r.referee_id).length);
+    }
+    loadReferralData();
+  }, [router]);
+  const earned = useMemo(() => booked * 50, [booked]);
 
   const providers = [
     {
@@ -71,7 +96,7 @@ export default function ReferralsPage() {
               <div className="p-4 space-y-4">
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg border border-dashed border-primary/30">
-                    <span className="text-primary font-mono font-bold tracking-wider">HSBMS-FRIEND-2024</span>
+                    <span className="text-primary font-mono font-bold tracking-wider">{inviteCode}</span>
                     <button
                       onClick={copyCode}
                       className="text-primary text-sm font-bold flex items-center gap-1"
@@ -94,9 +119,9 @@ export default function ReferralsPage() {
             <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold mb-4">Your Referral Status</h2>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { val: "12", label: "Invited", color: "text-slate-900 dark:text-slate-100" },
-                { val: "4", label: "Booked", color: "text-primary" },
-                { val: "$200", label: "Earned", color: "text-green-500" },
+                { val: String(invited), label: "Invited", color: "text-slate-900 dark:text-slate-100" },
+                { val: String(booked), label: "Booked", color: "text-primary" },
+                { val: `$${earned}`, label: "Earned", color: "text-green-500" },
               ].map(({ val, label, color }) => (
                 <div key={label} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-primary/5 text-center">
                   <p className={`text-2xl font-bold ${color}`}>{val}</p>
