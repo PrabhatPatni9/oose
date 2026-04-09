@@ -69,7 +69,9 @@ export default function ReferralsPage() {
   }, [router]);
 
   useEffect(() => {
-    load();
+    queueMicrotask(() => {
+      void load();
+    });
   }, [load]);
 
   const invited = rows.length;

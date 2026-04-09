@@ -54,15 +54,6 @@ export default function BookingPage() {
     loadServices();
   }, []);
 
-  const selectedService = services.find((s) => s.id === selectedServiceId) ?? services[0];
-  const basePrice = selectedService?.base_price ?? 120;
-
-  const pricing = useMemo(() => {
-    const p = computeBookingPricing(basePrice, duration, addons);
-    p.time_window = timeWindow;
-    return p;
-  }, [basePrice, duration, addons, timeWindow]);
-
   const categories = useMemo(() => ["All", ...uniqueCategories(services)], [services]);
   const groupedServices = useMemo(() => {
     const cats = selectedCategory === "All" ? uniqueCategories(services) : [selectedCategory];
@@ -72,13 +63,22 @@ export default function BookingPage() {
     }));
   }, [services, selectedCategory]);
 
-  useEffect(() => {
-    const flat = groupedServices.flatMap((g) => g.items);
-    if (flat.length === 0) return;
-    if (!flat.some((s) => s.id === selectedServiceId)) {
-      setSelectedServiceId(flat[0].id);
-    }
-  }, [groupedServices, selectedServiceId]);
+  const flatFiltered = groupedServices.flatMap((g) => g.items);
+  const activeServiceId =
+    flatFiltered.length === 0
+      ? selectedServiceId
+      : flatFiltered.some((s) => s.id === selectedServiceId)
+        ? selectedServiceId
+        : flatFiltered[0].id;
+
+  const selectedService = services.find((s) => s.id === activeServiceId) ?? services[0];
+  const basePrice = selectedService?.base_price ?? 120;
+
+  const pricing = useMemo(() => {
+    const p = computeBookingPricing(basePrice, duration, addons);
+    p.time_window = timeWindow;
+    return p;
+  }, [basePrice, duration, addons, timeWindow]);
 
   const { year, monthIndex, daysInMonth, startWeekday } = useMemo(() => {
     const y = calendarMonth.getFullYear();
@@ -108,7 +108,7 @@ export default function BookingPage() {
 
     const insertRow: Record<string, unknown> = {
       user_id: user.id,
-      service_id: selectedServiceId,
+      service_id: activeServiceId,
       scheduled_time: scheduledTime.toISOString(),
       status: "pending",
       extras,
@@ -117,7 +117,8 @@ export default function BookingPage() {
     let { data: inserted, error } = await supabase.from("bookings").insert(insertRow as never).select("id").maybeSingle();
     const msg = error?.message?.toLowerCase() ?? "";
     if (error && (msg.includes("extras") || msg.includes("column") || msg.includes("schema"))) {
-      const { extras: _drop, ...withoutExtras } = insertRow;
+      const withoutExtras = { ...insertRow };
+      delete withoutExtras.extras;
       ({ data: inserted, error } = await supabase.from("bookings").insert(withoutExtras as never).select("id").maybeSingle());
     }
 
@@ -208,7 +209,7 @@ export default function BookingPage() {
             </label>
             <div className="relative">
               <select
-                value={selectedServiceId}
+                value={activeServiceId}
                 onChange={(e) => setSelectedServiceId(Number(e.target.value))}
                 className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-3.5 pl-4 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/40"
               >

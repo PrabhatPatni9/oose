@@ -63,7 +63,9 @@ export default function RemindersPage() {
   }, [router]);
 
   useEffect(() => {
-    loadData();
+    queueMicrotask(() => {
+      void loadData();
+    });
   }, [loadData]);
 
   async function persistAuto(v: boolean) {

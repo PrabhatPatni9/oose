@@ -108,7 +108,9 @@ function PricingPageContent() {
   }, [router, searchParams]);
 
   useEffect(() => {
-    loadBooking();
+    queueMicrotask(() => {
+      void loadBooking();
+    });
   }, [loadBooking]);
 
   const pricing = useMemo(() => {
@@ -121,11 +123,13 @@ function PricingPageContent() {
     });
   }, [booking]);
 
-  const scheduledLabel = new Date(booking?.scheduled_time ?? Date.now()).toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  });
+  const scheduledLabel = booking?.scheduled_time
+    ? new Date(booking.scheduled_time).toLocaleDateString("en-US", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      })
+    : "—";
 
   const categoryIcon = booking?.services?.category
     ? getCategoryIcon(booking.services.category)

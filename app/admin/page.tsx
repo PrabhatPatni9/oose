@@ -113,7 +113,9 @@ export default function AdminPage() {
   }, [router]);
 
   useEffect(() => {
-    loadAll();
+    queueMicrotask(() => {
+      void loadAll();
+    });
   }, [loadAll]);
 
   async function updateTicketStatus(id: number, status: "open" | "in_progress" | "resolved") {

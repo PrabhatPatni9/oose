@@ -3,18 +3,21 @@
 -- Idempotent sections use DROP IF EXISTS / tagged seed rows where noted.
 -- =============================================================================
 
--- --- is_admin() avoids RLS recursion on public.users (EXISTS subquery on users caused 500s) ---
+-- --- is_admin(): internal SELECT must not re-apply RLS on public.users (policies call is_admin → recursion) ---
 create or replace function public.is_admin()
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (
+begin
+  perform set_config('row_security', 'off', true);
+  return exists (
     select 1 from public.users
     where id = auth.uid() and role = 'admin'
   );
+end;
 $$;
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to authenticated;

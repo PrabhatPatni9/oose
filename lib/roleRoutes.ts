@@ -10,11 +10,20 @@ function normalizeRoleToken(r: string | null | undefined): string {
   return "";
 }
 
-/** Prefer public.users.role; if it is still user and auth user_metadata.role is provider, route as provider. Admin is never taken from metadata alone. */
-export function effectiveRole(dbRole: string | null | undefined, metadataRole: string | null | undefined): AppRole {
+/**
+ * Prefer public.users.role; provider can be upgraded from user_metadata (sync RPC).
+ * app_metadata.role is only writable with the service role / dashboard, so "admin" there is safe for routing when the DB read fails.
+ */
+export function effectiveRole(
+  dbRole: string | null | undefined,
+  metadataRole: string | null | undefined,
+  appMetadataRole?: string | null | undefined,
+): AppRole {
   const d = normalizeRoleToken(dbRole);
   const m = normalizeRoleToken(metadataRole);
+  const a = normalizeRoleToken(appMetadataRole);
   if (d === "admin") return "admin";
+  if (a === "admin") return "admin";
   if (d === "provider") return "provider";
   if (m === "provider") return "provider";
   return "user";
@@ -29,9 +38,13 @@ export function homePathForRole(role: AppRole): "/dashboard" | "/provider" | "/a
 /** Calls sync_provider_role_from_auth RPC when present, then merges DB role with user_metadata for routing. */
 export async function resolveSessionRole(supabase: SupabaseClient, user: User): Promise<AppRole> {
   const meta = user.user_metadata?.role as string | undefined;
+  const appMeta = (user.app_metadata as { role?: string } | undefined)?.role;
   await supabase.rpc("sync_provider_role_from_auth");
-  const { data: row } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle();
-  return effectiveRole(row?.role as string | undefined, meta);
+  const { data: row, error } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle();
+  if (error && process.env.NODE_ENV === "development") {
+    console.warn("[resolveSessionRole] users.role:", error.message);
+  }
+  return effectiveRole(row?.role as string | undefined, meta, appMeta);
 }
 
 /** Use on all /provider/* shells */
