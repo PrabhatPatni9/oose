@@ -1,35 +1,73 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import { getSupabase } from "@/lib/supabase";
+import { fallbackServices, ServiceItem, uniqueCategories } from "@/lib/serviceCatalog";
 
 type TimeWindow = "morning" | "afternoon" | "evening";
 
 export default function BookingPage() {
   const router = useRouter();
-  const [selectedDate, setSelectedDate] = useState(12);
+  const [services, setServices] = useState<ServiceItem[]>(fallbackServices);
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedServiceId, setSelectedServiceId] = useState<number>(fallbackServices[0].id);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("morning");
   const [duration, setDuration] = useState(4.5);
   const [addons, setAddons] = useState({ duct: true, windows: false, soap: false });
   const [loading, setLoading] = useState(false);
 
-  const basePrice = 120;
+  useEffect(() => {
+    async function loadServices() {
+      const supabase = getSupabase();
+      const { data } = await supabase
+        .from("services")
+        .select("id, name, category, base_price")
+        .order("category", { ascending: true });
+      if (data && data.length > 0) {
+        setServices(data as ServiceItem[]);
+        setSelectedServiceId((data[0] as ServiceItem).id);
+      }
+    }
+    loadServices();
+  }, []);
+
+  const selectedService = services.find((s) => s.id === selectedServiceId) ?? services[0];
+  const basePrice = selectedService?.base_price ?? 120;
   const addonCost = (addons.duct ? 45 : 0) + (addons.windows ? 20 : 0) + (addons.soap ? 10 : 0);
   const total = basePrice + addonCost;
   const discounted = total - 19.5;
+  const categories = useMemo(() => ["All", ...uniqueCategories(services)], [services]);
+  const visibleServices = useMemo(
+    () => (selectedCategory === "All" ? services : services.filter((s) => s.category === selectedCategory)),
+    [selectedCategory, services],
+  );
+  const dateOptions = useMemo(() => {
+    return Array.from({ length: 14 }).map((_, idx) => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() + idx);
+      return d;
+    });
+  }, []);
 
   async function handleConfirm() {
     setLoading(true);
     const supabase = getSupabase();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/login"); return; }
+    if (!user) {
+      setLoading(false);
+      router.push("/login");
+      return;
+    }
 
-    const scheduledTime = new Date(2023, 9, selectedDate, timeWindow === "morning" ? 10 : timeWindow === "afternoon" ? 13 : 17);
+    const scheduledTime = new Date(selectedDate);
+    scheduledTime.setHours(timeWindow === "morning" ? 10 : timeWindow === "afternoon" ? 13 : 17, 0, 0, 0);
 
     const { error } = await supabase.from("bookings").insert({
       user_id: user.id,
-      service_id: 1,
+      service_id: selectedServiceId,
       scheduled_time: scheduledTime.toISOString(),
       status: "pending",
     });
@@ -39,8 +77,6 @@ export default function BookingPage() {
       router.push("/pricing");
     }
   }
-
-  const days = [1, 2, 3, 4, 12, 6, 7, 8];
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -70,10 +106,10 @@ export default function BookingPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em]">
-                      Deep Home Cleaning
+                      {selectedService?.name ?? "Service"}
                     </p>
                     <p className="text-slate-500 dark:text-slate-400 text-sm font-normal leading-normal">
-                      Full house sanitization and dusting
+                      {selectedService?.category ?? "General"}
                     </p>
                   </div>
                   <div className="bg-primary/10 text-primary px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">
@@ -82,6 +118,40 @@ export default function BookingPage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Service Type */}
+          <h3 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-[-0.015em] px-4 pb-2 pt-2">
+            Service Type
+          </h3>
+          <div className="px-4 pb-2 flex gap-2 overflow-x-auto no-scrollbar">
+            {categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`rounded-lg px-3 py-2 text-xs font-bold whitespace-nowrap ${
+                  selectedCategory === category ? "bg-primary text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+          <div className="px-4 grid grid-cols-1 gap-2">
+            {visibleServices.map((service) => (
+              <button
+                key={service.id}
+                onClick={() => setSelectedServiceId(service.id)}
+                className={`w-full rounded-xl p-3 border text-left ${
+                  selectedServiceId === service.id
+                    ? "border-primary bg-primary/5"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                }`}
+              >
+                <p className="font-bold text-sm">{service.name}</p>
+                <p className="text-xs text-slate-500">{service.category} • ${service.base_price.toFixed(2)}</p>
+              </button>
+            ))}
           </div>
 
           {/* Date Picker */}
@@ -95,7 +165,7 @@ export default function BookingPage() {
                   <span className="material-symbols-outlined">chevron_left</span>
                 </button>
                 <p className="text-slate-900 dark:text-slate-100 text-base font-bold leading-tight flex-1 text-center">
-                  October 2023
+                  {selectedDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
                 </p>
                 <button className="text-slate-900 dark:text-slate-100">
                   <span className="material-symbols-outlined">chevron_right</span>
@@ -105,19 +175,18 @@ export default function BookingPage() {
                 {["S","M","T","W","T","F","S"].map((d, i) => (
                   <p key={i} className="text-slate-400 text-[13px] font-bold h-10 flex items-center justify-center">{d}</p>
                 ))}
-                <div className="h-10 w-full col-start-4" />
-                {days.map((day) => (
+                {dateOptions.map((date) => (
                   <button
-                    key={day}
-                    onClick={() => setSelectedDate(day)}
+                    key={date.toISOString()}
+                    onClick={() => setSelectedDate(date)}
                     className="h-10 w-full text-sm font-medium"
                   >
                     <div className={`flex size-full items-center justify-center rounded-full ${
-                      selectedDate === day
+                      selectedDate.toDateString() === date.toDateString()
                         ? "bg-primary text-white shadow-lg shadow-primary/30"
                         : "text-slate-900 dark:text-slate-100"
                     }`}>
-                      {day}
+                      {date.getDate()}
                     </div>
                   </button>
                 ))}

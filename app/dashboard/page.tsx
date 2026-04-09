@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
+import { fallbackServices, getCategoryIcon, uniqueCategories } from "@/lib/serviceCatalog";
 
 interface Booking {
   id: number;
@@ -17,6 +18,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [userName, setUserName] = useState("Alex");
   const [upcomingBooking, setUpcomingBooking] = useState<Booking | null>(null);
+  const [categories, setCategories] = useState<{ icon: string; label: string }[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -34,21 +36,30 @@ export default function DashboardPage() {
         .limit(1)
         .single();
       if (data) setUpcomingBooking(data as unknown as Booking);
+
+      const { data: serviceData } = await supabase
+        .from("services")
+        .select("id, name, category, base_price")
+        .order("category", { ascending: true });
+      const resolved = (serviceData as typeof fallbackServices | null) ?? fallbackServices;
+      const computedCategories = uniqueCategories(resolved).map((category) => ({
+        label: category,
+        icon: getCategoryIcon(category),
+      }));
+      setCategories(
+        computedCategories.length > 0
+          ? computedCategories
+          : uniqueCategories(fallbackServices).map((category) => ({
+              label: category,
+              icon: getCategoryIcon(category),
+            })),
+      );
     }
     loadData();
   }, [router]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
-
-  const categories = [
-    { icon: "cleaning_services", label: "Cleaning" },
-    { icon: "ac_unit", label: "AC Repair" },
-    { icon: "plumbing", label: "Plumbing" },
-    { icon: "pest_control", label: "Pest Control" },
-    { icon: "spa", label: "Beauty Services" },
-    { icon: "grid_view", label: "More" },
-  ];
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -150,7 +161,16 @@ export default function DashboardPage() {
               Service Categories
             </h3>
             <div className="grid grid-cols-3 gap-4">
-              {categories.map(({ icon, label }) => (
+              {(categories.length > 0
+                ? categories
+                : [
+                    { icon: "cleaning_services", label: "Cleaning" },
+                    { icon: "ac_unit", label: "AC Repair" },
+                    { icon: "plumbing", label: "Plumbing" },
+                    { icon: "pest_control", label: "Pest Control" },
+                    { icon: "spa", label: "Beauty Services" },
+                  ]
+              ).map(({ icon, label }) => (
                 <Link key={label} href="/booking" className="flex flex-col items-center gap-2 group cursor-pointer">
                   <div className="w-full aspect-square bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 dark:border-slate-800 group-active:scale-95 transition-transform">
                     <span className="material-symbols-outlined text-primary text-3xl">{icon}</span>

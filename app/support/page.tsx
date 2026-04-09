@@ -10,8 +10,8 @@ export default function SupportPage() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     setLoading(true);
     const supabase = getSupabase();
     await supabase.from("issued_reports").insert({
@@ -52,7 +52,9 @@ export default function SupportPage() {
               <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-xl p-4 flex flex-col gap-1">
                 <p className="text-xs font-semibold text-primary uppercase tracking-wider">Service Reference</p>
                 <p className="text-slate-900 dark:text-white font-bold text-lg">Deep Kitchen Cleaning</p>
-                <p className="text-slate-500 dark:text-slate-400 text-sm">Completed on Oct 24, 2023 • Pro: Sarah Jenkins</p>
+                <p className="text-slate-500 dark:text-slate-400 text-sm">
+                  Completed on {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })} • Pro: Sarah Jenkins
+                </p>
               </div>
             </div>
 

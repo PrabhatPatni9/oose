@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import MobileFrame from "@/components/MobileFrame";
 import BottomNav from "@/components/BottomNav";
 import { getSupabase } from "@/lib/supabase";
+import { getCategoryIcon } from "@/lib/serviceCatalog";
 
 interface HistoryEntry {
   id: number;
@@ -21,12 +22,6 @@ const filters = [
   { label: "AC Repair", icon: "ac_unit" },
   { label: "Plumbing", icon: "plumbing" },
   { label: "Cleaning", icon: "cleaning_services" },
-];
-
-const mockHistory = [
-  { icon: "ac_unit", iconBg: "bg-primary/10 text-primary", name: "Full AC Service", date: "July 15, 2023 • 2:00 PM", status: "Completed", statusColor: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400", rating: "4.8" },
-  { icon: "plumbing", iconBg: "bg-orange-100 dark:bg-orange-900/30 text-orange-600", name: "Leaky Faucet Repair", date: "June 02, 2023 • 10:30 AM", status: "Completed", statusColor: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400", rating: null },
-  { icon: "cleaning_services", iconBg: "bg-purple-100 dark:bg-purple-900/30 text-purple-600", name: "Deep Home Cleaning", date: "May 12, 2023 • 09:00 AM", status: "Canceled", statusColor: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400", rating: null },
 ];
 
 export default function HistoryPage() {
@@ -48,6 +43,11 @@ export default function HistoryPage() {
     }
     loadData();
   }, [router]);
+
+  const filteredHistory =
+    activeFilter === "All"
+      ? history
+      : history.filter((entry) => entry.bookings?.services?.category === activeFilter);
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -128,36 +128,47 @@ export default function HistoryPage() {
             <div className="px-4 py-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-slate-900 dark:text-slate-100 text-xl font-bold tracking-tight">Past Services</h2>
-                <span className="text-xs font-medium text-slate-500">{mockHistory.length} Total</span>
+                <span className="text-xs font-medium text-slate-500">{filteredHistory.length} Total</span>
               </div>
-              {mockHistory.map((item, i) => (
-                <div key={i} className="group bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+              {filteredHistory.length === 0 && (
+                <div className="text-sm text-slate-500 bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+                  No history records for this filter yet.
+                </div>
+              )}
+              {filteredHistory.map((item) => (
+                <div key={item.id} className="group bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
                   <div className="flex gap-4">
-                    <div className={`size-16 rounded-lg ${item.iconBg} flex items-center justify-center`}>
-                      <span className="material-symbols-outlined text-3xl">{item.icon}</span>
+                    <div className="size-16 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                      <span className="material-symbols-outlined text-3xl">
+                        {getCategoryIcon(item.bookings?.services?.category ?? "")}
+                      </span>
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="font-bold text-slate-900 dark:text-slate-100">{item.name}</h3>
-                          <p className="text-sm text-slate-500">{item.date}</p>
+                          <h3 className="font-bold text-slate-900 dark:text-slate-100">{item.bookings?.services?.name ?? "Service"}</h3>
+                          <p className="text-sm text-slate-500">
+                            {new Date(item.completion_date).toLocaleDateString("en-US", {
+                              month: "long",
+                              day: "2-digit",
+                              year: "numeric",
+                            })}{" "}
+                            •{" "}
+                            {new Date(item.completion_date).toLocaleTimeString("en-US", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
                         </div>
-                        <span className={`${item.statusColor} text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider`}>
-                          {item.status}
+                        <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                          {item.bookings?.status ?? "Completed"}
                         </span>
                       </div>
                       <div className="mt-4 flex items-center justify-between border-t border-slate-50 dark:border-slate-800 pt-3">
-                        {item.rating ? (
-                          <div className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-sm text-yellow-500">star</span>
-                            <span className="text-sm font-bold">{item.rating}</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-slate-400">
-                            <span className="material-symbols-outlined text-sm">chat_bubble_outline</span>
-                            <span className="text-sm">{item.status === "Canceled" ? "User canceled service" : "Feedback sent"}</span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1 text-slate-400">
+                          <span className="material-symbols-outlined text-sm">notes</span>
+                          <span className="text-sm">{item.notes?.trim() ? item.notes : "No notes available"}</span>
+                        </div>
                         <Link href="/booking" className="flex items-center gap-2 text-primary font-bold text-sm">
                           <span className="material-symbols-outlined text-sm">refresh</span>
                           Rebook

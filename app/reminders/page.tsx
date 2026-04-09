@@ -22,6 +22,7 @@ export default function RemindersPage() {
   const router = useRouter();
   const [autoReminder, setAutoReminder] = useState(true);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const now = new Date();
 
   useEffect(() => {
     async function loadData() {
@@ -37,22 +38,14 @@ export default function RemindersPage() {
     loadData();
   }, [router]);
 
-  const predictions = [
-    {
-      tag: "Predictive", tagColor: "text-primary bg-primary/10",
-      date: "Oct 16, 2023",
-      title: "Suggested: Pest Control",
-      desc: "Based on your 12-month cycle. Your last service was in October 2022. Early booking recommended.",
-      img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBAkcxrUkspydxFjz0yIEouDQ15yZNlnSWfA0fkhHijGw39eo4g3-_PSC4_3dsb8-rUNESkmD0OFcn1p14S3-c1awOjSG38qcos6IrBn0BzszpPMxkTPADiSx1jZQwiMhNCfNEBaCV5zv7eEB9QyLdGtpbgjeYrNzcSkbamfpZSHUYeuRUC3KFcradam_ctjspITDhxaJG2YD4B8ckJy9HIfYe9GcRrvnndbxxWXHvYUA4XAjWOeanbDmHtEbHy1cQ0Ig0Sat43nSxm",
-    },
-    {
-      tag: "Seasonal", tagColor: "text-slate-500 bg-slate-100 dark:bg-slate-800",
-      date: "Nov 02, 2023",
-      title: "HVAC Winter Prep",
-      desc: "It's time for your annual heating system tune-up before the first frost.",
-      img: "https://lh3.googleusercontent.com/aida-public/AB6AXuDS4lleknTW5LUrFsZO6n5l3PhyNwN-MLfe2VGlqyaMhQoyA_6qS5absy5XEAPrmKFJeKp6IsjDem9jmZH4b85Go08aqcCH-CsQO_GODDgluJ3D2nXRdBtDRTIzFtRwC1tdpSy5ska3JorTLbGRnxz8XHm0CTDjcXRfxAB7ticrw-2uEgEBDG2WnYOAm7ZyYtwCoDITl97iJxncfTEPYvnvmrhQOA-NnRxUORYLVIEkXQPMx8MJsBtNYjBVNShB_DrUeDH6qC9_wBxw",
-    },
-  ];
+  const predictions = reminders.slice(0, 3).map((r, idx) => ({
+    tag: idx === 0 ? "Predictive" : "Seasonal",
+    tagColor: idx === 0 ? "text-primary bg-primary/10" : "text-slate-500 bg-slate-100 dark:bg-slate-800",
+    date: new Date(r.reminder_date).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
+    title: `Suggested: ${r.services?.name ?? "Service"}`,
+    desc: "Based on your booking timeline and usage pattern.",
+    img: "https://lh3.googleusercontent.com/aida-public/AB6AXuDS4lleknTW5LUrFsZO6n5l3PhyNwN-MLfe2VGlqyaMhQoyA_6qS5absy5XEAPrmKFJeKp6IsjDem9jmZH4b85Go08aqcCH-CsQO_GODDgluJ3D2nXRdBtDRTIzFtRwC1tdpSy5ska3JorTLbGRnxz8XHm0CTDjcXRfxAB7ticrw-2uEgEBDG2WnYOAm7ZyYtwCoDITl97iJxncfTEPYvnvmrhQOA-NnRxUORYLVIEkXQPMx8MJsBtNYjBVNShB_DrUeDH6qC9_wBxw",
+  }));
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -78,7 +71,7 @@ export default function RemindersPage() {
                 <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
                   <span className="material-symbols-outlined">chevron_left</span>
                 </button>
-                <p className="text-base font-bold">October 2023</p>
+                <p className="text-base font-bold">{now.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
                 <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
                   <span className="material-symbols-outlined">chevron_right</span>
                 </button>
@@ -123,6 +116,11 @@ export default function RemindersPage() {
               </div>
 
               <h3 className="text-base font-bold mb-4">Upcoming Predictions</h3>
+              {predictions.length === 0 && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-sm text-slate-500">
+                  No reminders yet. Book a service to get AI predictions.
+                </div>
+              )}
               {predictions.map((p, i) => (
                 <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm mb-4">
                   <div className="h-40 bg-cover bg-center" style={{ backgroundImage: `url('${p.img}')` }} />

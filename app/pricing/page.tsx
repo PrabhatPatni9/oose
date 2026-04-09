@@ -12,6 +12,7 @@ const lineItems = [
 
 export default function PricingPage() {
   const router = useRouter();
+  const scheduledLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
 
   return (
     <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
@@ -39,7 +40,7 @@ export default function PricingPage() {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white">Deep House Cleaning</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Scheduled for Oct 24, 2023</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Scheduled for {scheduledLabel}</p>
               </div>
             </div>
 
